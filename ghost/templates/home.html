@@ -1,0 +1,142 @@
+{% extends "base.html" %}
+
+{% block title %}VisionCore | Enterprise AI Monitoring{% endblock %}
+
+{% block content %}
+<header class="clean-header">
+    <div>
+        <h2 style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2.5px; color: var(--text-dim); margin-bottom: 0.25rem; font-weight: 800;">System Overview</h2>
+        <h1 style="font-size: 2.25rem; font-weight: 800; letter-spacing: -1.2px;">Intelligence Hub</h1>
+    </div>
+    <div id="live-clock" class="header-clock"></div>
+</header>
+
+<section class="hero-bento-minimal">
+    <div class="hero-visual-minimal">
+        <div class="hero-header" style="padding: 6rem 2rem;">
+            <div class="hud-status" style="margin-bottom: 1.5rem;"><span class="dot-online"></span> NODE SECTOR-7G</div>
+            <div id="system-health-badge" style="cursor: pointer; user-select: none; margin-bottom: 1.5rem; display: inline-flex; align-items: center; gap: 10px; padding: 0.5rem 1rem; border-radius: 100px; border: 1px solid var(--border); background: rgba(255,255,255,0.02);">
+                <span id="system-health-dot" style="width: 9px; height: 9px; border-radius: 50%; background: var(--text-dim); box-shadow: 0 0 12px rgba(148,163,184,0.35);"></span>
+                <span id="system-health-text" style="font-size: 0.75rem; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim);">System Syncing...</span>
+            </div>
+            <div id="system-health-panel" style="display: none; margin-bottom: 1.5rem; width: 100%; max-width: 720px; padding: 1rem; border: 1px solid var(--border); border-radius: 14px; background: rgba(255,255,255,0.02);">
+                <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); font-weight: 800; margin-bottom: 0.75rem;">System Health Telemetry</div>
+                <pre id="system-health-json" style="margin: 0; white-space: pre-wrap; text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 0.75rem; color: var(--text); opacity: 0.9;"></pre>
+            </div>
+            <h1 class="hero-title">Precision Monitoring. Automated Efficiency.</h1>
+            <p class="hero-subtitle">VisionCore powers enterprise-grade room intelligence with real-time neural inference and energy waste mitigation.</p>
+            <div class="hero-actions">
+                <a href="/monitor" class="btn-cta">Start Monitoring</a>
+                <a href="/reports" class="btn-cta btn-secondary">Audit Archive</a>
+            </div>
+        </div>
+
+        <div class="quick-status-row">
+            <div class="status-node">
+                <span class="node-label">Occupancy</span>
+                <span class="node-value" id="t-occupancy">SYNCING...</span>
+            </div>
+            <div class="status-node">
+                <span class="node-label">Efficiency</span>
+                <span class="node-value" id="t-waste">OPTIMIZING...</span>
+            </div>
+            <div class="status-node">
+                <span class="node-label">Uptime</span>
+                <span class="node-value" id="t-uptime">--:--:--</span>
+            </div>
+            <div class="status-node">
+                <span class="node-label">Neural Engine</span>
+                <span class="node-value" style="color: var(--success);">v2.4 ACTIVE</span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ─── This Month Summary ─── -->
+<section style="margin-top: 2rem;">
+    <header style="display:flex; justify-content: space-between; align-items:flex-end; margin-bottom: 1.25rem; gap: 1rem;">
+        <div>
+            <h2 style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); margin-bottom: 0.5rem; font-weight: 800;">This month</h2>
+            <div id="monthly-month-label" style="font-size: 2rem; font-weight: 900; letter-spacing: -1px; color: #fff;">--</div>
+        </div>
+    </header>
+
+    <div class="bento-grid">
+        <div class="bento-card wide" style="grid-column: span 6;">
+            <div class="stat-heading">Total Alerts Fired</div>
+            <div class="stat-value" id="monthly-total-alerts">--</div>
+            <div class="stat-desc">ALERT_SENT events in this month</div>
+        </div>
+        <div class="bento-card wide" style="grid-column: span 6;">
+            <div class="stat-heading">Total Waste Hours</div>
+            <div class="stat-value" id="monthly-total-waste-hours">--</div>
+            <div class="stat-desc">Sum of waste durations</div>
+        </div>
+        <div class="bento-card wide" style="grid-column: span 6;">
+            <div class="stat-heading">Total INR Wasted</div>
+            <div class="stat-value" id="monthly-total-money-wasted">₹--</div>
+            <div class="stat-desc">Direct electricity cost impact</div>
+        </div>
+        <div class="bento-card wide" style="grid-column: span 6;">
+            <div class="stat-heading">Avg Daily Waste</div>
+            <div class="stat-value" id="monthly-avg-daily-waste">--</div>
+            <div class="stat-desc">Minutes wasted per day</div>
+        </div>
+    </div>
+</section>
+
+<section class="feature-pillars">
+    <div class="pillar">
+        <h3 class="pillar-title">Automated Detection</h3>
+        <p class="pillar-text">Seamlessly track room occupancy using state-of-the-art YOLOv8 edge models without manual intervention.</p>
+    </div>
+    <div class="pillar">
+        <h3 class="pillar-title">Waste Mitigation</h3>
+        <p class="pillar-text">Identify and alert for energy waste incidents in seconds, drastically reducing carbon footprint and costs.</p>
+    </div>
+    <div class="pillar">
+        <h3 class="pillar-title">Audit Intelligence</h3>
+        <p class="pillar-text">Access a complete history of occupancy and energy logs, compiled into clear, enterprise-ready reports.</p>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function updateClock() {
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const dateStr = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+        const clock = document.getElementById('live-clock');
+        if (clock) clock.innerText = `${dateStr} | ${timeStr}`;
+    }
+
+    async function updateHeartbeat() {
+        try {
+            const resp = await fetch('/stats');
+            const data = await resp.json();
+            
+            document.getElementById('t-occupancy').innerText = data.current_person_count + " POSITIVES";
+            document.getElementById('t-uptime').innerText = data.uptime;
+            
+            const wasteResp = await fetch('/status');
+            const wasteData = await wasteResp.json();
+            const wasteEl = document.getElementById('t-waste');
+            if (wasteData.is_energy_wasted) {
+                wasteEl.innerText = "WASTE ALERT";
+                wasteEl.style.color = "var(--danger)";
+            } else {
+                wasteEl.innerText = "OPTIMIZED";
+                wasteEl.style.color = "var(--success)";
+            }
+        } catch (e) {
+            console.error("Heartbeat failed", e);
+        }
+    }
+
+    setInterval(updateClock, 1000);
+    setInterval(updateHeartbeat, 2000);
+    updateClock();
+    updateHeartbeat();
+</script>
+{% endblock %}

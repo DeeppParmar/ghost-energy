@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Audit Intelligence | VisionCore{% endblock %}
+
+{% block content %}
+<header style="margin-bottom: 2rem;">
+    <h2
+        style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); margin-bottom: 0.5rem;">
+        Compliance & Analysis</h2>
+    <h1 style="font-size: 2.25rem; font-weight: 800; letter-spacing: -1px;">Audit Reports</h1>
+</header>
+
+<div class="bento-grid">
+    <div class="bento-card wide" id="report-card" style="grid-column: span 12;">
+        <div class="stat-heading">Generate New Audit</div>
+        <div style="display: flex; gap: 1.5rem; align-items: center; margin-bottom: 2rem;">
+            <button class="btn-cta" id="generate-report-btn" style="padding: 1rem 2rem; font-size: 1rem;">Run System
+                Audit &rarr;</button>
+            <div id="report-status" style="font-size: 0.9rem; color: var(--text-dim);">Ready to analyze active sector
+                data.</div>
+        </div>
+
+        <div class="stat-heading" style="margin-top: 2.5rem; border-top: 1px solid var(--border); padding-top: 1.5rem;">
+            Generated Report Archive</div>
+        <div id="report-list" style="margin-top: 1rem;">
+            <div style="opacity: 0.5; padding: 2.5rem; text-align: center;">Scanning for archived PDF reports...</div>
+        </div>
+    </div>
+</div>
+{% endblock %}

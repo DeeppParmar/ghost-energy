@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Command Center | VisionCore{% endblock %}
+
+{% block content %}
+<header style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem;">
+    <div>
+        <h2 style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); margin-bottom: 0.5rem;">Environment HUD</h2>
+        <h1 style="font-size: 2.25rem; font-weight: 800; letter-spacing: -1px;">Command Center</h1>
+    </div>
+    <div style="display:flex; align-items:center; gap:10px;">
+        <div id="live-indicator" style="background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success); color: var(--success); padding: 4px 12px; border-radius: 100px; font-size: 0.75rem; font-weight: 800; letter-spacing: 1px;">
+            ● LIVE ENCODER
+        </div>
+        <a href="/settings" style="background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text); width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; text-decoration: none; font-size: 1.2rem;">⚙</a>
+    </div>
+</header>
+
+<div class="bento-grid">
+    <!-- Video Feed -->
+    <div class="bento-card hero-bento" style="grid-column: span 9; grid-row: span 2;">
+        <div class="hud-video-feed" style="height: 100%; min-height: 480px;">
+            <img src="{{ url_for('video_feed') }}" id="video-feed" alt="Live AI AI-Feed" style="width: 100%; height: 100%; object-fit: cover;">
+            <div class="hud-overlay">
+                <div class="hud-bracket top-left"></div>
+                <div class="hud-bracket top-right"></div>
+                <div class="hud-bracket bottom-left"></div>
+                <div class="hud-bracket bottom-right"></div>
+                <div class="hud-scanline"></div>
+
+            </div>
+            <div id="energy-alert" class="waste-alert" style="position: absolute; bottom: 20px; left: 20px; right: 20px; z-index: 20; display: none;">
+                ⚠️ CRITICAL: ENERGY WASTE DETECTED IN VACANT SECTOR
+            </div>
+        </div>
+    </div>
+
+    <!-- Live Metrics -->
+    <div class="bento-card">
+        <div class="stat-heading">Presence Vector</div>
+        <div class="stat-value" id="person-count">--</div>
+        <div class="stat-desc" id="time-since">Syncing...</div>
+    </div>
+
+    <div class="bento-card">
+        <div class="stat-heading">Luminance</div>
+        <div class="stat-value" id="light-status" style="font-size: 1.4rem;">SCANNING</div>
+        <div class="stat-desc" id="light-type">Analyzing Spectrum...</div>
+    </div>
+
+    <!-- Energy Leak Audit -->
+    <div class="bento-card wide">
+        <div class="stat-heading">Energy Leak Audit</div>
+        <div class="energy-grid">
+            <div class="energy-metric main-metric">
+                <span class="energy-label">Value Wasted</span>
+                <div class="energy-val-group">
+                    <span class="energy-val large" id="money-wasted">₹0.00</span>
+                    <span class="energy-trend negative">↑ LEAKING</span>
+                </div>
+            </div>
+            <div class="energy-metric">
+                <span class="energy-label">Burn Rate</span>
+                <span class="energy-val" id="burn-rate">₹0.00/hr</span>
+            </div>
+            <div class="energy-metric">
+                <span class="energy-label">Total Drain</span>
+                <span class="energy-val small" id="kwh-wasted">0.00 kWh</span>
+            </div>
+            <div class="energy-metric">
+                <span class="energy-label">Leak Duration</span>
+                <span class="energy-val small" id="waste-time">0m 0s</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Confidence + Verifier Badges -->
+    <div class="bento-card">
+        <div class="stat-heading">Confidence</div>
+        <div style="margin-top: 0.75rem;">
+            <span id="confidence-pill"
+                  class="confidence-pill"
+                  style="display:inline-flex; align-items:center; justify-content:center; padding: 0.45rem 0.95rem; border-radius: 999px; border:1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--text-dim); font-weight: 900; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; transition: background-color 0.4s ease; min-width: 140px;">--</span>
+        </div>
+        <div class="stat-desc" style="margin-top: 0.75rem;">Primary tracker confidence</div>
+    </div>
+
+    <div class="bento-card">
+        <div class="stat-heading">Verifier</div>
+        <div style="margin-top: 0.75rem;">
+            <span id="verifier-pill"
+                  class="verifier-pill"
+                  style="display:inline-flex; align-items:center; justify-content:center; padding: 0.45rem 0.95rem; border-radius: 999px; border:1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--text-dim); font-weight: 900; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; transition: background-color 0.4s ease; min-width: 140px;">--</span>
+        </div>
+        <div class="stat-desc" style="margin-top: 0.75rem;">Secondary YOLO verification</div>
+    </div>
+
+    <!-- Presence History -->
+    <div class="bento-card wide chart-card">
+        <div class="stat-heading">Presence History</div>
+        <div class="chart-wrapper">
+            <canvas id="occupancyChart"></canvas>
+        </div>
+    </div>
+
+    <!-- System Telemetry -->
+    <div class="bento-card">
+        <div class="stat-heading">System Telemetry</div>
+        <div style="margin-bottom: 0.75rem;">
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 700;">
+                <span>CPU ENGINE</span>
+                <span id="cpu-val">--%</span>
+            </div>
+            <div class="health-track"><div class="health-fill" id="cpu-bar" style="width: 0%;"></div></div>
+        </div>
+        <div>
+            <div style="display: flex; justify-content: space-between; font-size: 0.75rem; font-weight: 700;">
+                <span>RAM BUFFER</span>
+                <span id="ram-val">--%</span>
+            </div>
+            <div class="health-track"><div class="health-fill" id="ram-bar" style="width: 0%;"></div></div>
+        </div>
+    </div>
+
+    <div class="bento-card">
+        <div class="stat-heading">Neural Load</div>
+        <div class="stat-value" id="ai-fps">--</div>
+        <div class="stat-unit">FPS</div>
+        <div class="stat-desc" id="hw-info">Detecting...</div>
+    </div>
+</div>
+{% endblock %}

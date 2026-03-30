@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}VisionCore{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <div class="bg-mesh"></div>
+
+    <aside class="sidebar">
+        <a href="/" class="brand">
+            <div class="brand-icon">V</div>
+            <span class="brand-name">VisionCore</span>
+        </a>
+
+        <div class="nav-label">Main</div>
+        <ul class="nav-links">
+            <li class="nav-item {% if request.path == '/' %}active{% endif %}">
+                <a href="/"><span>🏠</span> Overview</a>
+            </li>
+            <li class="nav-item {% if request.path == '/monitor' %}active{% endif %}">
+                <a href="/monitor"><span>📡</span> Command Center</a>
+            </li>
+        </ul>
+
+        <div class="nav-label">Analytics</div>
+        <ul class="nav-links">
+            <li class="nav-item {% if request.path == '/history' %}active{% endif %}">
+                <a href="/history"><span>📊</span> History Log</a>
+            </li>
+            <li class="nav-item {% if request.path == '/reports' %}active{% endif %}">
+                <a href="/reports"><span>📄</span> Audit Reports</a>
+            </li>
+        </ul>
+
+        <div class="nav-label">System</div>
+        <ul class="nav-links">
+            <li class="nav-item {% if request.path == '/settings' %}active{% endif %}">
+                <a href="/settings"><span>⚙</span> HUD Config</a>
+            </li>
+        </ul>
+
+        <div style="margin-top: auto; padding: 1rem; background: rgba(255,255,255,0.03); border-radius: 12px; font-size: 0.75rem; color: var(--text-dim);">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                <div style="width:8px; height:8px; background:var(--success); border-radius:50%; box-shadow: 0 0 8px var(--success);"></div>
+                AI Engine Active
+            </div>
+            Node: SECTOR-7G
+        </div>
+    </aside>
+
+    <main class="main-viewport">
+        {% block content %}{% endblock %}
+        
+        <footer class="footer">
+            <p>VisionCore Command Center v2.4.0 • Secured Edge Node</p>
+        </footer>
+    </main>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

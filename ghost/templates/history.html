@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+
+{% block title %}Audit History | VisionCore{% endblock %}
+
+{% block content %}
+<header style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: flex-end;">
+    <div>
+        <h2 style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); margin-bottom: 0.5rem; font-weight: 800;">Analytics Engine v2.4</h2>
+        <h1 style="font-size: 2.5rem; font-weight: 800; letter-spacing: -1.5px; line-height: 1;">Audit & Intelligence</h1>
+    </div>
+    <div style="text-align: right;">
+        <div id="last-updated" style="font-size: 0.7rem; color: var(--text-dim); font-weight: 700; text-transform: uppercase;">Syncing with Edge Node...</div>
+    </div>
+</header>
+
+<!-- ─── Analytics Summary Cards ─── -->
+<div class="bento-grid" style="margin-bottom: 2rem;">
+    <div class="bento-card">
+        <div class="stat-heading">Total Incidents</div>
+        <div class="stat-value" id="stat-incidents">--</div>
+        <div class="stat-desc">Alerts triggered in current cycle</div>
+    </div>
+    <div class="bento-card">
+        <div class="stat-heading">Total Waste Time</div>
+        <div class="stat-value" id="stat-waste-hrs">-- <span class="stat-unit">hrs</span></div>
+        <div class="stat-desc">Non-productive energy usage</div>
+    </div>
+    <div class="bento-card">
+        <div class="stat-heading">Monetary Impact</div>
+        <div class="stat-value" id="stat-money-wasted" style="color: var(--danger);">₹ --</div>
+        <div class="stat-desc">Estimated direct electricity cost</div>
+    </div>
+    <div class="bento-card">
+        <div class="stat-heading">Savings Potential</div>
+        <div class="stat-value" id="stat-money-saved" style="color: var(--success);">₹ --</div>
+        <div class="stat-desc">Optimized revenue protection</div>
+    </div>
+</div>
+
+<div class="bento-grid">
+    <!-- ─── Waste Heatmap (Hour × Weekday) ─── -->
+    <div class="bento-card large" style="grid-column: span 12;">
+        <div style="display:flex; justify-content: space-between; align-items: center; gap: 1rem;">
+            <div class="stat-heading" style="margin-bottom: 0;">Waste heatmap — hour × weekday</div>
+            <button id="heatmap-refresh-btn" class="btn-save" style="min-width: 120px; padding: 0.6rem 1rem;">Refresh</button>
+        </div>
+        <div id="heatmap-container" style="margin-top: 1.25rem; overflow-x: auto; overflow-y: hidden; padding-bottom: 0.5rem;"></div>
+    </div>
+
+    <!-- ─── Historical Chart ─── -->
+    <div class="bento-card large">
+        <div class="stat-heading">Energy Waste Frequency (Last 7 Days)</div>
+        <div class="chart-wrapper" style="margin-top: 1.5rem; min-height: 300px;">
+            <canvas id="historyChart"></canvas>
+        </div>
+    </div>
+
+    <!-- ─── Live Event Stream ─── -->
+    <div class="bento-card large">
+        <div class="stat-heading">Full Event Stream</div>
+        <div style="margin-top: 0.75rem; padding: 0.85rem 1rem; border: 1px solid var(--border); border-radius: 12px; background: rgba(255,255,255,0.02); display: flex; gap: 0.75rem; align-items: end; flex-wrap: wrap;">
+            <div style="display:flex; flex-direction: column; gap: 0.35rem; min-width: 160px;">
+                <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); font-weight: 800;">From</div>
+                <input id="export-from-date" type="date" style="width:100%; padding: 0.6rem 0.75rem; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 10px; color: #fff; outline: none; font-family: inherit;">
+            </div>
+            <div style="display:flex; flex-direction: column; gap: 0.35rem; min-width: 160px;">
+                <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); font-weight: 800;">To</div>
+                <input id="export-to-date" type="date" style="width:100%; padding: 0.6rem 0.75rem; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 10px; color: #fff; outline: none; font-family: inherit;">
+            </div>
+            <div style="display:flex; flex-direction: column; gap: 0.35rem; align-items: flex-start; justify-content: flex-end;">
+                <button id="export-csv-btn" class="btn-save" style="min-width: 160px;">Export CSV</button>
+                <div id="export-csv-status" style="min-height: 1.1rem; font-size: 0.75rem; font-weight: 800; color: var(--text-dim);"></div>
+            </div>
+        </div>
+        <div class="audit-table-container" style="margin-top: 1.5rem; max-height: 320px; overflow-y: auto;">
+            <table style="width: 100%; border-collapse: separate; border-spacing: 0 8px; font-size: 0.85rem;">
+                <thead>
+                    <tr style="text-align: left; color: var(--text-dim); text-transform: uppercase; font-size: 0.65rem; letter-spacing: 1px;">
+                        <th style="padding: 0 1rem;">Status</th>
+                        <th>Timestamp</th>
+                        <th>Duration</th>
+                        <th style="text-align: right; padding-right: 1rem;">Impact</th>
+                    </tr>
+                </thead>
+                <tbody id="audit-tbody">
+                    <!-- Dynamic Rows -->
+                </tbody>
+            </table>
+            <div id="empty-state" style="display:none; padding: 3rem; text-align: center; opacity: 0.5;">
+                No historical waste events detected. Logic performing optimally.
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+    .audit-row {
+        background: rgba(255,255,255,0.02);
+        transition: transform 0.2s ease, background 0.2s ease;
+    }
+    .audit-row:hover {
+        background: rgba(255,255,255,0.05);
+        transform: scale(1.005);
+    }
+    .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 8px;
+    }
+    .status-dot.danger { background: var(--danger); box-shadow: 0 0 10px var(--danger); }
+    .status-dot.warning { background: var(--warning); box-shadow: 0 0 10px var(--warning); }
+</style>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let historyChart = null;
+
+    async function updateHistoryStats() {
+        try {
+            const response = await fetch('/api/history_stats');
+            const stats = await response.json();
+            
+            document.getElementById('stat-incidents').textContent = stats.total_incidents;
+            
+            // Format time: X.XX hrs (Y.Y mins)
+            const hrs = parseFloat(stats.total_waste_hours);
+            const mins = (hrs * 60).toFixed(1);
+            document.getElementById('stat-waste-hrs').innerHTML = 
+                `${hrs} <span class="stat-unit">hrs</span> <span style="font-size: 0.9rem; opacity: 0.6; margin-left: 8px;">(${mins}m)</span>`;
+            
+            document.getElementById('stat-money-wasted').textContent = '₹' + stats.total_money_wasted;
+            document.getElementById('stat-money-saved').textContent = '₹' + stats.total_money_saved;
+            document.getElementById('last-updated').textContent = 'Last Sync: ' + new Date().toLocaleTimeString();
+        } catch (e) { console.error("Stats fail", e); }
+    }
+
+    async function updateHistoryChart() {
+        try {
+            const response = await fetch('/api/energy_savings');
+            const data = await response.json();
+            
+            const ctx = document.getElementById('historyChart').getContext('2d');
+            
+            if (historyChart) historyChart.destroy();
+            
+            historyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: data.labels,
+                    datasets: [{
+                        label: 'Waste Hours',
+                        data: data.data,
+                        backgroundColor: 'rgba(96, 165, 250, 0.4)',
+                        borderColor: '#60a5fa',
+                        borderWidth: 2,
+                        borderRadius: 8,
+                        hoverBackgroundColor: 'rgba(96, 165, 250, 0.8)'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: { color: 'rgba(255,255,255,0.05)' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    }
+                }
+            });
+        } catch (e) { console.error("Chart fail", e); }
+    }
+
+    async function updateEventLog() {
+        try {
+            const response = await fetch('/api/history');
+            const data = await response.json();
+            const tbody = document.getElementById('audit-tbody');
+            const emptyState = document.getElementById('empty-state');
+            
+            if (!data.entries || data.entries.length === 0) {
+                tbody.innerHTML = '';
+                emptyState.style.display = 'block';
+                return;
+            }
+            
+            emptyState.style.display = 'none';
+            tbody.innerHTML = data.entries.reverse().map(entry => {
+                const duration = parseFloat(entry.Duration_Seconds);
+                const cost = (duration / 3600 * 200 / 1000 * 8).toFixed(2);
+                const severity = duration > 600 ? 'danger' : 'warning';
+                
+                return `
+                    <tr class="audit-row">
+                        <td style="padding: 1rem; border-top-left-radius: 12px; border-bottom-left-radius: 12px;">
+                            <span class="status-dot ${severity}"></span>
+                            ${duration > 600 ? 'Severe' : 'Alert'}
+                        </td>
+                        <td style="color: #fff; font-weight: 600;">${entry.Timestamp}</td>
+                        <td style="color: var(--text-dim);">${(duration / 60).toFixed(1)} mins</td>
+                        <td style="text-align: right; padding-right: 1rem; border-top-right-radius: 12px; border-bottom-right-radius: 12px; color: #fff; font-family: monospace; font-weight: 700;">
+                            ₹${cost}
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        } catch (e) { console.error("Log fail", e); }
+    }
+
+    // Initial Load
+    updateHistoryStats();
+    updateHistoryChart();
+    updateEventLog();
+
+    // Refresh every 30 seconds
+    setInterval(() => {
+        updateHistoryStats();
+        updateEventLog();
+    }, 30000);
+</script>
+{% endblock %}

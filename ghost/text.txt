@@ -1,0 +1,339 @@
+VisionCore 2.0 - Full Codebase Documentation
+=============================================
+
+Documentation scope
+-------------------
+This document is generated from a full scan of all files currently present in the repository:
+- app.py
+- config.py
+- settings.json
+- logic/detector.py
+- logic/report_generator.py
+- static/script.js
+- static/style.css
+- templates/base.html
+- templates/home.html
+- templates/monitor.html
+- templates/history.html
+- templates/reports.html
+- templates/settings.html
+- reports/energy_audit.csv
+
+1) Project purpose
+------------------
+VisionCore is a Flask-based, real-time room monitoring system that:
+- streams live camera video,
+- runs AI-based occupancy detection (YOLO),
+- classifies lighting conditions,
+- detects "energy waste" (empty room + artificial light on beyond threshold),
+- sends alert emails,
+- logs incidents to CSV,
+- exposes dashboard APIs,
+- renders a multi-page monitoring UI,
+- and generates daily PDF audit reports.
+
+2) High-level architecture
+--------------------------
+The app uses a multi-threaded backend with a polling frontend.
+
+Backend layers:
+- Web server/API layer: Flask routes in app.py.
+- AI core: RoomMonitor class in logic/detector.py.
+- Reporting layer: PDF generation in logic/report_generator.py.
+- Persistent settings: settings.json + config module mutation.
+- Historical storage: reports/energy_audit.csv.
+
+Frontend layers:
+- HTML templates (Jinja): pages under templates/.
+- Shared JS controller: static/script.js (VisionHUD class).
+- Shared styling: static/style.css.
+
+Data flow summary:
+1. Camera thread captures latest raw frame.
+2. AI thread runs detection on the latest frame and updates shared overlay/state.
+3. Stream route reads latest frame + latest overlay and serves MJPEG.
+4. Energy tracker thread accumulates waste seconds continuously.
+5. Frontend polls APIs every 1s-30s depending on widget.
+6. Daily scheduler auto-generates a PDF report at 23:55.
+
+3) Backend deep dive
+--------------------
+3.1 app.py responsibilities
+- Initializes Flask app and one global RoomMonitor instance.
+- Starts 4 daemon threads:
+  - _camera_thread: non-blocking frame acquisition.
+  - _ai_thread: asynchronous AI processing and occupancy history recording.
+  - _energy_tracker_thread: per-second waste-time accumulator.
+  - _daily_report_scheduler: nightly report generation trigger.
+- Loads persisted user settings from settings.json at startup.
+- Provides page routes and all dashboard APIs.
+
+3.2 Concurrency model
+- Shared frame state:
+  - _latest_frame guarded by _camera_lock.
+- Shared energy state:
+  - waste counters guarded by _energy_lock.
+- Detector internals (in RoomMonitor) have additional locks for overlays and verifier.
+- Design intent: keep video stream smooth even when AI inference is slower than target FPS.
+
+3.3 Energy logic
+- Constants:
+  - _BULB_WATTAGE = 200 W
+  - _ELECTRICITY_RATE = 8.0 INR/kWh
+- Waste condition is driven by monitor.is_energy_wasted, which becomes true only when:
+  - person_count == 0,
+  - light classification == "Artificial Light",
+  - empty duration >= ALERT_DELAY_SECONDS.
+- Computed outputs:
+  - waste seconds/minutes,
+  - kWh wasted,
+  - money wasted,
+  - instantaneous money burn rate per hour.
+
+3.4 Occupancy history
+- Maintains deques of max length 600 samples (~10 min at 1 sample/sec).
+- API downsamples to ~120 points max for chart rendering.
+
+3.5 Settings lifecycle
+- Startup: load_settings() reads settings.json and mutates config values.
+- Runtime: /api/settings POST updates config and writes settings.json via save_settings().
+- Fields:
+  - receiver_email
+  - room_name
+  - alert_delay
+
+3.6 Exposed routes
+Page routes:
+- GET /            -> home.html
+- GET /monitor     -> monitor.html
+- GET /history     -> history.html
+- GET /reports     -> reports.html
+- GET /settings    -> settings.html
+- GET /video_feed  -> multipart MJPEG stream
+
+Core JSON APIs:
+- GET /status
+  Returns person_count, light_status, is_energy_wasted, time_since_presence, ai_fps.
+
+- GET /api/settings
+  Returns current receiver_email, room_name, alert_delay.
+
+- POST /api/settings
+  Updates settings and persists to disk.
+
+- POST /api/test_email
+  Sends test email via SMTP.
+
+- GET /api/history
+  Returns recent audit CSV entries (last 50).
+
+- GET /stats
+  Returns uptime, detections, hardware info, engine description, optional CPU/RAM telemetry.
+
+- GET /api/energy_savings
+  Returns 7-day waste-hours trend for charting.
+
+- GET /api/history_stats
+  Returns aggregate historical incident metrics and cost estimates.
+
+- GET /api/energy_live
+  Returns today/session waste in seconds, kWh, INR and config rates.
+
+- GET /api/occupancy_history
+  Returns downsampled occupancy time series.
+
+- POST /api/generate_report
+  Generates PDF report and returns filename + download URL.
+
+- GET /download_report/<filename>
+  File download endpoint for PDFs.
+
+- GET /api/reports
+  Lists generated PDFs with size and creation timestamp.
+
+4) AI engine deep dive (logic/detector.py)
+------------------------------------------
+4.1 Model strategy
+- Uses dual YOLO models:
+  - Primary: YOLOv8n for speed and tracking (ByteTrack).
+  - Secondary: YOLOv8m for asynchronous verification.
+- Device auto-selection:
+  - CUDA if available, else CPU.
+- Enables half-precision on CUDA.
+- Performs warmup inference when GPU exists.
+
+4.2 Detection pipeline
+- Input frame resized for inference (_infer_size).
+- Primary tracker produces person candidates.
+- Secondary verifier runs in separate background thread on latest queued frame.
+- Consensus logic:
+  - accept high-confidence tracker detections directly (conf >= 0.50),
+  - otherwise require IoU agreement with verifier result.
+- Aspect-ratio filter rejects non-human shaped boxes.
+- Separate full-class detection pass captures non-human objects for overlay.
+- Temporal smoothing applies median over recent counts.
+
+4.3 Light classification
+- If overall brightness < BRIGHTNESS_THRESHOLD -> "Dark".
+- If night window -> "Artificial Light".
+- Else compares window ROI characteristics to distinguish "Natural Sunlight" vs "Artificial Light".
+
+4.4 Alerting
+- trigger_alert() sends one asynchronous email per active waste episode.
+- Email transport: Gmail SMTP SSL (smtp.gmail.com:465).
+- send_test_email() validates configured recipient.
+- log_energy_waste(duration) appends incident to reports/energy_audit.csv.
+
+5) Reporting subsystem (logic/report_generator.py)
+--------------------------------------------------
+Core behavior:
+- Reads audit CSV and filters by target date.
+- Computes:
+  - total alerts,
+  - waste seconds/hours,
+  - estimated energy saved (kWh),
+  - estimated money saved (INR),
+  - rough presence-hours estimate.
+- Generates branded PDF using FPDF with:
+  - custom header/footer,
+  - executive summary,
+  - metric cards,
+  - detailed alert table,
+  - recommendation section.
+- Output path:
+  - reports/energy_report_<YYYY-MM-DD>.pdf
+
+Note:
+- In this implementation, "money_saved" is derived from waste-hour based formula and should be interpreted as modeled impact, not utility-grade billing.
+
+6) Frontend deep dive
+---------------------
+6.1 Template structure
+- base.html:
+  - shared layout (sidebar, main viewport, footer),
+  - global CSS and JS imports,
+  - active nav highlighting by request.path.
+
+- home.html:
+  - landing/intelligence hub,
+  - heartbeat polling from /stats and /status.
+
+- monitor.html:
+  - live video feed panel,
+  - presence/light/energy/telemetry cards,
+  - occupancy chart canvas.
+
+- history.html:
+  - aggregate history cards,
+  - 7-day bar chart,
+  - tabular event stream.
+
+- reports.html:
+  - report generation action and report archive list.
+
+- settings.html:
+  - editable settings form + test email trigger.
+
+6.2 JavaScript behavior (static/script.js)
+- VisionHUD class initializes page-specific listeners and polling intervals.
+- Major methods:
+  - updateStatus(): polls /status.
+  - loadStats(): polls /stats, updates CPU/RAM bars.
+  - updateEnergyCost(): polls /api/energy_live.
+  - loadAuditLog(): polls /api/history and builds event blocks.
+  - updateOccupancyChart(): polls /api/occupancy_history and maintains Chart.js instance.
+  - loadSettings()/saveSettings(): GET/POST /api/settings.
+  - testEmail(): POST /api/test_email.
+  - generateReport(): POST /api/generate_report.
+  - loadReports(): GET /api/reports.
+
+6.3 Styling system (static/style.css)
+- Tokenized design variables in :root (HSL palette, spacing, radii).
+- Layout primitives:
+  - sidebar + main viewport,
+  - 12-column bento grid,
+  - reusable cards and telemetry components.
+- Includes responsive breakpoints at 1200px and 768px.
+- Visual style: dark glassmorphism + HUD/enterprise dashboard aesthetics.
+
+7) Data artifacts
+-----------------
+7.1 settings.json
+- Runtime-persisted user preferences.
+- Loaded into config values at startup.
+
+7.2 reports/energy_audit.csv
+- Current schema:
+  - Timestamp
+  - Room
+  - Duration_Seconds
+  - Status
+- Sample data indicates multiple ALERT_SENT records.
+
+8) Configuration reference (config.py)
+--------------------------------------
+- ROOM_NAME: default monitored room label.
+- CAMERA_SOURCE: webcam index or RTSP URL.
+- ALERT_DELAY_SECONDS: empty-room delay before alert logic can trigger.
+- BRIGHTNESS_THRESHOLD: dark/light threshold.
+- WINDOW_ZONE: normalized ROI for sunlight inference.
+- NIGHT_START_HOUR/NIGHT_END_HOUR: night-time detection window.
+- SENDER_EMAIL/SENDER_PASSWORD/RECEIVER_EMAIL: SMTP credentials and recipient.
+
+9) Operational behavior and startup sequence
+-------------------------------------------
+On app start:
+1. Flask app and RoomMonitor are created.
+2. Camera/AI/energy/report daemon threads start.
+3. settings.json is loaded (if present).
+4. Routes serve UI and APIs.
+
+At runtime:
+- Frontend continuously polls APIs and updates UI.
+- Alerts can email automatically during waste conditions.
+- CSV log grows with incidents.
+- Daily PDF auto-generated near end of day.
+
+10) Risks and technical debt observed
+-------------------------------------
+Critical security risks:
+- Plaintext email password stored in config.py.
+- Personal email addresses embedded in source/settings.
+- No authentication/authorization on sensitive endpoints (settings updates, report generation, file download endpoint constrained only by suffix check).
+
+Data/logic consistency issues:
+- Frontend code in loadAuditLog() expects Money_Wasted field, but CSV schema currently lacks that column.
+- Comments in some locations suggest behavior "every few frames" while code executes each frame.
+- Metrics naming mixes "saved" and "wasted" semantics; business interpretation should be standardized.
+
+Performance/robustness considerations:
+- Full-class detection plus person tracking in same loop can increase inference load.
+- Global mutable module state can complicate scaling beyond single process.
+- API error handling often swallows exceptions silently, reducing diagnosability.
+
+11) Suggested improvement roadmap
+---------------------------------
+1. Move secrets to environment variables and rotate exposed credentials immediately.
+2. Add auth (at least token-based) for settings/report/admin APIs.
+3. Introduce structured logging and explicit error responses.
+4. Add tests for:
+   - energy-waste decision logic,
+   - API contracts,
+   - report statistics correctness.
+5. Normalize data schema (include derived cost fields or compute consistently server-side).
+6. Add dependency file (requirements.txt or pyproject.toml) and setup instructions.
+7. Add health endpoint for camera/model readiness and verifier backlog state.
+
+12) Quick file-by-file index
+----------------------------
+- app.py: Flask app, threading, APIs, scheduler, stream and statistics.
+- config.py: runtime constants and SMTP config.
+- settings.json: persisted mutable settings.
+- logic/detector.py: detection, verification, light analysis, alerts, CSV logging.
+- logic/report_generator.py: PDF generation and summary math.
+- static/script.js: dashboard orchestration and polling logic.
+- static/style.css: visual system and layout framework.
+- templates/*.html: page markup for home, monitor, history, reports, settings.
+- reports/energy_audit.csv: event history dataset.
+
+End of documentation.
