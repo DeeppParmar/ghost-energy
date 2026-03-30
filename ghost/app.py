@@ -13,6 +13,16 @@ from logic.report_generator import generate_daily_report
 app = Flask(__name__)
 monitor = RoomMonitor()
 
+# ── Reduce OpenCV backend log spam (Windows) ──
+try:
+    # OpenCV 4.x: suppress INFO/WARN noise from camera backends
+    if hasattr(cv2, "setLogLevel") and hasattr(cv2, "LOG_LEVEL_ERROR"):
+        cv2.setLogLevel(cv2.LOG_LEVEL_ERROR)
+    elif hasattr(cv2, "utils") and hasattr(cv2.utils, "logging"):
+        cv2.utils.logging.setLogLevel(cv2.utils.logging.LOG_LEVEL_ERROR)
+except Exception:
+    pass
+
 # ── Persistent Settings File ──
 SETTINGS_FILE = os.path.join(os.path.dirname(__file__), 'settings.json')
 _start_time = time.time()
@@ -99,7 +109,7 @@ def _camera_thread():
     """Capture frames in background — never blocks anything."""
     global _latest_frame, _camera_running
 
-    # Try primary configured source first; if it fails, auto-scan common webcams.
+    # Try primary configured source first; if it fails, auto-scan a few common webcam indexes.
     # This prevents the UI MJPEG stream from staying black when CAM index is wrong.
     source = getattr(config, "CAMERA_SOURCE", 0)
 
@@ -108,6 +118,7 @@ def _camera_thread():
         if os.name != "nt":
             return cv2.VideoCapture(src)
 
+        # Keep scan small to avoid long startup + log spam.
         backend_candidates = [None]
         if hasattr(cv2, "CAP_DSHOW"):
             backend_candidates.append(cv2.CAP_DSHOW)
@@ -134,9 +145,9 @@ def _camera_thread():
         # If `CAMERA_SOURCE` is an index, scan nearby indexes for a working webcam.
         candidates = None
         if isinstance(source, int):
-            candidates = list(range(0, 51))
+            candidates = list(range(0, 6))
         elif isinstance(source, str) and source.isdigit():
-            candidates = list(range(0, 51))
+            candidates = list(range(0, 6))
 
         if candidates:
             for idx in candidates:
@@ -306,13 +317,16 @@ def generate_frames():
             # Otherwise the browser can render a permanently black area.
             if placeholder is None:
                 placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+                # Background panel for readability (camera missing scenario).
+                cv2.rectangle(placeholder, (10, 200), (630, 300), (0, 0, 0), -1)
+                cv2.rectangle(placeholder, (10, 200), (630, 300), (148, 163, 184), 2)  # border
                 cv2.putText(
                     placeholder,
                     "Camera not available",
-                    (20, 240),
+                    (30, 255),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.8,
-                    (0, 0, 255),
+                    (11, 158, 245),  # orange-ish (BGR) to match HUD palette
                     2,
                     cv2.LINE_AA,
                 )
@@ -367,6 +381,7 @@ def status():
     return jsonify({
         "person_count": monitor.person_count,
         "light_status": monitor.light_status,
+        "light_type": monitor.light_status,
         "is_energy_wasted": monitor.is_energy_wasted,
         "time_since_presence": int(time.time() - monitor.last_seen_time),
         "ai_fps": monitor._ai_fps,

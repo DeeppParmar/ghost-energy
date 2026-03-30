@@ -298,12 +298,6 @@ class RoomMonitor:
                     track_id = int(box.id[0]) if box.id is not None else -1
                     tracked_humans.append(coords + [conf, track_id])
 
-        # Compute average confidence from the primary tracker for UI telemetry.
-        if tracked_humans:
-            self.detection_confidence = sum(th[4] for th in tracked_humans) / len(tracked_humans)
-        else:
-            self.detection_confidence = None
-
         # ── Get verifier-confirmed humans ──
         with self._verifier_lock:
             verified = list(self._verifier_confirmed)
@@ -336,6 +330,12 @@ class RoomMonitor:
             aspect = box_h / (box_w + 1e-6)
             if aspect >= 0.7:
                 valid_humans.append(human)
+
+        # Confidence badge uses the currently accepted persons (after filtering).
+        if valid_humans:
+            self.detection_confidence = sum(h[4] for h in valid_humans) / len(valid_humans)
+        else:
+            self.detection_confidence = None
 
         # ── Also extract non-human objects for overlay ──
         all_objects = []

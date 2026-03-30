@@ -75,24 +75,29 @@
     </div>
 
     <!-- AI Confidence + Verifier Badges -->
-    <div class="bento-card">
-        <div class="stat-heading">Confidence</div>
-        <div style="margin-top: 0.75rem;">
-            <span id="confidence-pill"
-                  class="confidence-pill"
-                  style="display:inline-flex; align-items:center; justify-content:center; padding: 0.45rem 0.95rem; border-radius: 999px; border:1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--text-dim); font-weight: 900; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; transition: background-color 0.4s ease; min-width: 140px;">--</span>
-        </div>
-        <div class="stat-desc" style="margin-top: 0.75rem;">Primary tracker confidence</div>
-    </div>
+    <div class="bento-card wide">
+        <div class="stat-heading" style="margin-bottom: 0.75rem;">AI Status</div>
+        <div style="display:flex; gap: 1.25rem; flex-wrap: wrap;">
+            <div style="min-width: 220px; flex: 1;">
+                <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); font-weight: 800; margin-bottom: 0.5rem;">Confidence</div>
+                <div style="margin-top: 0.5rem;">
+                    <span id="confidence-pill"
+                          class="confidence-pill"
+                          style="display:inline-flex; align-items:center; justify-content:center; padding: 0.45rem 0.95rem; border-radius: 999px; border:1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--text-dim); font-weight: 900; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; transition: background-color 0.4s ease; min-width: 160px;">--</span>
+                </div>
+                <div class="stat-desc" style="margin-top: 0.75rem;">Primary tracker confidence</div>
+            </div>
 
-    <div class="bento-card">
-        <div class="stat-heading">Verifier</div>
-        <div style="margin-top: 0.75rem;">
-            <span id="verifier-pill"
-                  class="verifier-pill"
-                  style="display:inline-flex; align-items:center; justify-content:center; padding: 0.45rem 0.95rem; border-radius: 999px; border:1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--text-dim); font-weight: 900; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; transition: background-color 0.4s ease; min-width: 140px;">--</span>
+            <div style="min-width: 220px; flex: 1;">
+                <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); font-weight: 800; margin-bottom: 0.5rem;">Verifier</div>
+                <div style="margin-top: 0.5rem;">
+                    <span id="verifier-pill"
+                          class="verifier-pill"
+                          style="display:inline-flex; align-items:center; justify-content:center; padding: 0.45rem 0.95rem; border-radius: 999px; border:1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--text-dim); font-weight: 900; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; transition: background-color 0.4s ease; min-width: 160px;">--</span>
+                </div>
+                <div class="stat-desc" style="margin-top: 0.75rem;">Secondary YOLO verification</div>
+            </div>
         </div>
-        <div class="stat-desc" style="margin-top: 0.75rem;">Secondary YOLO verification</div>
     </div>
 
     <!-- Presence History -->

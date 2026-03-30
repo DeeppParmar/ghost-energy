@@ -199,17 +199,25 @@
             emptyState.style.display = 'none';
             tbody.innerHTML = data.entries.reverse().map(entry => {
                 const duration = parseFloat(entry.Duration_Seconds);
-                const cost = (duration / 3600 * 200 / 1000 * 8).toFixed(2);
-                const severity = duration > 600 ? 'danger' : 'warning';
+                const durationSafe = Number.isFinite(duration) ? duration : 0;
+
+                // Prefer Money_Wasted from CSV (new schema); fallback to formula for older rows.
+                const moneyRaw = entry.Money_Wasted;
+                const moneyNum = Number(moneyRaw);
+                const costNum = Number.isFinite(moneyNum)
+                    ? moneyNum
+                    : (durationSafe / 3600 * 200 / 1000 * 8);
+                const cost = costNum.toFixed(2);
+                const severity = durationSafe > 600 ? 'danger' : 'warning';
                 
                 return `
                     <tr class="audit-row">
                         <td style="padding: 1rem; border-top-left-radius: 12px; border-bottom-left-radius: 12px;">
                             <span class="status-dot ${severity}"></span>
-                            ${duration > 600 ? 'Severe' : 'Alert'}
+                            ${durationSafe > 600 ? 'Severe' : 'Alert'}
                         </td>
                         <td style="color: #fff; font-weight: 600;">${entry.Timestamp}</td>
-                        <td style="color: var(--text-dim);">${(duration / 60).toFixed(1)} mins</td>
+                        <td style="color: var(--text-dim);">${(durationSafe / 60).toFixed(1)} mins</td>
                         <td style="text-align: right; padding-right: 1rem; border-top-right-radius: 12px; border-bottom-right-radius: 12px; color: #fff; font-family: monospace; font-weight: 700;">
                             ₹${cost}
                         </td>

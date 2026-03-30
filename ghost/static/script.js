@@ -59,31 +59,32 @@ class VisionHUD {
     startPolling() {
         // Main status update (Monitor Page)
         if (document.getElementById('person-count') || document.getElementById('light-status')) {
-            setInterval(() => this.updateStatus(), 1000);
+            // Poll less aggressively to keep CPU load stable.
+            setInterval(() => this.updateStatus(), 1500);
             this.updateStatus();
         }
 
         // System health (CPU/RAM) (Universal)
         if (document.getElementById('cpu-bar')) {
-            setInterval(() => this.loadStats(), 3000);
+            setInterval(() => this.loadStats(), 4000);
             this.loadStats();
         }
 
         // Energy Cost (Monitor Page)
         if (document.getElementById('money-wasted')) {
-            setInterval(() => this.updateEnergyCost(), 2000);
+            setInterval(() => this.updateEnergyCost(), 3000);
             this.updateEnergyCost();
         }
 
         // Audit Log (History/Monitor Page)
         if (document.getElementById('audit-log')) {
-            setInterval(() => this.loadAuditLog(), 5000);
+            setInterval(() => this.loadAuditLog(), 8000);
             this.loadAuditLog();
         }
 
         // Occupancy Chart (Monitor Page)
         if (document.getElementById('occupancyChart')) {
-            setInterval(() => this.updateOccupancyChart(), 5000);
+            setInterval(() => this.updateOccupancyChart(), 7000);
             this.updateOccupancyChart();
         }
 
