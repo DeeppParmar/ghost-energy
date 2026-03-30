@@ -1,5 +1,6 @@
 from flask import Flask, render_template, Response, jsonify, request, send_file
 import cv2
+import numpy as np
 import time
 import json
 import os
@@ -97,11 +98,63 @@ migrate_csv_schema()
 def _camera_thread():
     """Capture frames in background — never blocks anything."""
     global _latest_frame, _camera_running
-    camera = cv2.VideoCapture(config.CAMERA_SOURCE)
+
+    # Try primary configured source first; if it fails, auto-scan common webcams.
+    # This prevents the UI MJPEG stream from staying black when CAM index is wrong.
+    source = getattr(config, "CAMERA_SOURCE", 0)
+
+    def _try_open(src):
+        # Windows: try multiple backends because different systems enumerate cameras differently.
+        if os.name != "nt":
+            return cv2.VideoCapture(src)
+
+        backend_candidates = [None]
+        if hasattr(cv2, "CAP_DSHOW"):
+            backend_candidates.append(cv2.CAP_DSHOW)
+        if hasattr(cv2, "CAP_MSMF"):
+            backend_candidates.append(cv2.CAP_MSMF)
+        if hasattr(cv2, "CAP_ANY"):
+            backend_candidates.append(cv2.CAP_ANY)
+
+        last_cam = None
+        for backend in backend_candidates:
+            cam = cv2.VideoCapture(src) if backend is None else cv2.VideoCapture(src, backend)
+            last_cam = cam
+            if cam.isOpened():
+                return cam
+            try:
+                cam.release()
+            except Exception:
+                pass
+
+        return last_cam
+
+    camera = _try_open(source)
+    if not camera.isOpened():
+        # If `CAMERA_SOURCE` is an index, scan nearby indexes for a working webcam.
+        candidates = None
+        if isinstance(source, int):
+            candidates = list(range(0, 51))
+        elif isinstance(source, str) and source.isdigit():
+            candidates = list(range(0, 51))
+
+        if candidates:
+            for idx in candidates:
+                test_cam = _try_open(idx)
+                if test_cam.isOpened():
+                    camera = test_cam
+                    source = idx
+                    break
+
+    if not camera.isOpened():
+        _camera_running = False
+        print(f"[CAMERA] Opened: False. No usable camera source found (source={getattr(config, 'CAMERA_SOURCE', None)}).")
+        return
+
     camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     camera.set(cv2.CAP_PROP_FPS, 30)
-    _camera_running = camera.isOpened()
-    print(f"[CAMERA] Opened: {_camera_running}, Target: 30fps")
+    _camera_running = True
+    print(f"[CAMERA] Opened: True (source={source}), Target: 30fps")
 
     while _camera_running:
         success, frame = camera.read()
@@ -243,16 +296,30 @@ def generate_frames():
     The AI thread updates overlay data independently.
     This means the video is always smooth even if AI is slow.
     """
+    placeholder = None
     while True:
         with _camera_lock:
             frame = _latest_frame.copy() if _latest_frame is not None else None
 
         if frame is None:
-            time.sleep(0.01)
-            continue
-
-        # Draw latest AI detections onto the raw frame
-        display = monitor.draw_overlay(frame)
+            # Keep MJPEG stream responsive even when camera isn't available.
+            # Otherwise the browser can render a permanently black area.
+            if placeholder is None:
+                placeholder = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(
+                    placeholder,
+                    "Camera not available",
+                    (20, 240),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    0.8,
+                    (0, 0, 255),
+                    2,
+                    cv2.LINE_AA,
+                )
+            display = placeholder
+        else:
+            # Draw latest AI detections onto the raw frame
+            display = monitor.draw_overlay(frame)
 
         ret, buffer = cv2.imencode('.jpg', display, [cv2.IMWRITE_JPEG_QUALITY, 75])
         frame_bytes = buffer.tobytes()
