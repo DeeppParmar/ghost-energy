@@ -76,42 +76,48 @@ class VisionHUD {
         }
     }
 
+    pollSequence(fn, interval) {
+        const execute = async () => {
+            try {
+                await fn();
+            } catch (e) {
+                // Ignore network interruption errors in polling
+            } finally {
+                setTimeout(execute, interval);
+            }
+        };
+        execute();
+    }
+
     startPolling() {
         // Main status update (Monitor Page)
         if (document.getElementById('person-count') || document.getElementById('light-status')) {
-            // Poll less aggressively to keep CPU load stable.
-            setInterval(() => this.updateStatus(), 1500);
-            this.updateStatus();
+            this.pollSequence(() => this.updateStatus(), 1500);
         }
 
         // System health (CPU/RAM) (Universal)
         if (document.getElementById('cpu-bar')) {
-            setInterval(() => this.loadStats(), 4000);
-            this.loadStats();
+            this.pollSequence(() => this.loadStats(), 4000);
         }
 
         // Energy Cost (Monitor Page)
         if (document.getElementById('money-wasted')) {
-            setInterval(() => this.updateEnergyCost(), 3000);
-            this.updateEnergyCost();
+            this.pollSequence(() => this.updateEnergyCost(), 3000);
         }
 
         // Audit Log (History/Monitor Page)
         if (document.getElementById('audit-log')) {
-            setInterval(() => this.loadAuditLog(), 8000);
-            this.loadAuditLog();
+            this.pollSequence(() => this.loadAuditLog(), 8000);
         }
 
         // Occupancy Chart (Monitor Page)
         if (document.getElementById('occupancyChart')) {
-            setInterval(() => this.updateOccupancyChart(), 7000);
-            this.updateOccupancyChart();
+            this.pollSequence(() => this.updateOccupancyChart(), 7000);
         }
 
         // System Health (Home Page)
         if (document.getElementById('system-health-badge')) {
-            setInterval(() => this.loadSystemHealth(), 15000);
-            this.loadSystemHealth();
+            this.pollSequence(() => this.loadSystemHealth(), 15000);
         }
 
         // Heatmap (History Page)
@@ -121,12 +127,9 @@ class VisionHUD {
 
         // Monthly Summary (Home Page)
         if (document.getElementById('monthly-total-alerts')) {
-            setInterval(() => this.loadMonthlySummary(), 60000);
-            this.loadMonthlySummary();
-            setInterval(() => this.loadProjection(), 60000);
-            this.loadProjection();
-            setInterval(() => this.loadLeaderboard(), 60000);
-            this.loadLeaderboard();
+            this.pollSequence(() => this.loadMonthlySummary(), 60000);
+            this.pollSequence(() => this.loadProjection(), 60000);
+            this.pollSequence(() => this.loadLeaderboard(), 60000);
         }
     }
 
@@ -139,6 +142,7 @@ class VisionHUD {
     async loadSystemHealth() {
         try {
             const res = await fetch('/health');
+            if (!res.ok) throw new Error('Health check failed');
             const d = await res.json();
 
             const dotEl = document.getElementById('system-health-dot');

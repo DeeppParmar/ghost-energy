@@ -191,19 +191,21 @@ def _restart_camera_thread():
 
 
 def _ai_thread():
-    """Run AI detection asynchronously — doesn't block the video stream.
-    The AI processes frames as fast as it can. The overlay data is stored
-    in monitor._overlay_* and drawn by the stream thread independently."""
+    """Run AI detection asynchronously with CPU Governor limit."""
     global _total_detections
     global _focus_start_ts, _focus_seconds
+    target_frame_time = 1.0 / _TARGET_FPS
+
     while True:
+        cycle_start = time.time()
         with _camera_lock:
             frame = _latest_frame.copy() if _latest_frame is not None else None
+
         if frame is None:
             time.sleep(0.01)
             continue
 
-        # AI processes at maximum possible speed (no drawing here)
+        # AI processes at maximum configured speed limit
         monitor.process_frame(frame)
         if monitor.person_count > 0:
             _total_detections += 1
@@ -220,6 +222,11 @@ def _ai_thread():
         now = time.time()
         _occupancy_history.append(monitor.person_count)
         _occupancy_timestamps.append(now)
+
+        # CPU Governor: Sleep remaining frame time budget to hit ~30 FPS
+        elapsed = time.time() - cycle_start
+        if elapsed < target_frame_time:
+            time.sleep(target_frame_time - elapsed)
 
 
 # ── Energy Waste Tracker Thread ──
