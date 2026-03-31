@@ -318,8 +318,8 @@ class RoomMonitor:
             except Exception:
                 snapshot_path = None
 
-        # DB first (Supabase/SQLite)
-        db_ok = db.add_waste_event(
+        # Insert to Supabase Postgres (or SQLite fallback) directly. No CSV native write.
+        db.add_waste_event(
             timestamp=event_ts,
             room=config.ROOM_NAME,
             duration_seconds=round(duration, 2),
@@ -328,19 +328,6 @@ class RoomMonitor:
             snapshot_path=snapshot_path,
             zone_name="default",
         )
-        if db_ok:
-            return
-
-        with open(file_path, mode='a', newline='') as f:
-            import csv
-            writer = csv.writer(f)
-            if f.tell() == 0:
-                writer.writerow(['Timestamp', 'Room', 'Duration_Seconds', 'Status', 'Money_Wasted'])
-            writer.writerow([event_ts.strftime('%Y-%m-%d %H:%M:%S'),
-                             config.ROOM_NAME,
-                             round(duration, 2),
-                             'ALERT_SENT',
-                             money_wasted])
 
     # ── Core Detection Pipeline ───────────────────────────────────────
 
@@ -569,6 +556,34 @@ class RoomMonitor:
                         cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA)
         except Exception:
             # Never fail overlay drawing.
+            pass
+
+        # ── Draw Multi-Zone overlays ──
+        try:
+            zones_map = getattr(config, 'ZONES_MAP', {})
+            h, w = frame.shape[:2]
+            zone_colors = [
+                (200, 120, 255),  # purple
+                (120, 220, 255),  # cyan
+                (255, 200, 100),  # gold
+                (100, 255, 160),  # mint
+            ]
+            for idx, (zid, zdata) in enumerate(zones_map.items()):
+                bbox = zdata.get('bbox', [0, 0, 1, 1])
+                zname = zdata.get('name', zid)
+                zx1 = int(bbox[0] * w)
+                zy1 = int(bbox[1] * h)
+                zx2 = int(bbox[2] * w)
+                zy2 = int(bbox[3] * h)
+                color = zone_colors[idx % len(zone_colors)]
+                cv2.rectangle(frame, (zx1, zy1), (zx2, zy2), color, 1)
+                # Label background
+                label = zname.upper()
+                (lw, lh), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)
+                cv2.rectangle(frame, (zx1, zy1), (zx1 + lw + 8, zy1 + lh + 8), color, -1)
+                cv2.putText(frame, label, (zx1 + 4, zy1 + lh + 4),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0, 0, 0), 1, cv2.LINE_AA)
+        except Exception:
             pass
 
         return frame

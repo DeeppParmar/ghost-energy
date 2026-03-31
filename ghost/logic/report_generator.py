@@ -90,16 +90,6 @@ def _read_audit_entries(target_date=None):
         for r in rows:
             if (r.get("Timestamp") or "").startswith(target_date):
                 entries.append(r)
-        return entries
-    if not os.path.exists(AUDIT_CSV):
-        return entries
-
-    with open(AUDIT_CSV, 'r', newline='') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            ts = row.get('Timestamp', '')
-            if ts.startswith(target_date):
-                entries.append(row)
     return entries
 
 

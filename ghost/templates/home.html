@@ -86,14 +86,16 @@
             <div class="stat-desc">Minutes wasted per day</div>
         </div>
         <div class="bento-card wide" style="grid-column: span 6;">
-            <div class="stat-heading">Tomorrow Projection</div>
-            <div class="stat-value" id="projection-hours">--</div>
-            <div class="stat-desc" id="projection-money">₹--</div>
+            <div class="stat-heading">🤖 Tomorrow Projection</div>
+            <div class="stat-value" id="projection-hours" style="font-size: 1.8rem;">--</div>
+            <div class="stat-desc" id="projection-money" style="margin-bottom: 0.5rem;">₹-- (AI predicted)</div>
+            <div style="font-size: 0.7rem; color: var(--text-dim); opacity: 0.7;">Powered by scikit-learn LinearRegression</div>
         </div>
         <div class="bento-card wide" style="grid-column: span 6;">
-            <div class="stat-heading">Eco Leaderboard</div>
-            <div class="stat-value" id="leader-rank">--</div>
-            <div class="stat-desc" id="leader-desc">Loading leaderboard...</div>
+            <div class="stat-heading">🏆 Eco Leaderboard</div>
+            <div class="stat-value" id="leader-rank" style="font-size: 1.8rem;">--</div>
+            <div class="stat-desc" id="leader-desc" style="margin-bottom: 0.75rem;">Loading leaderboard...</div>
+            <div id="leaderboard-table" style="width: 100%;"></div>
         </div>
     </div>
 </section>

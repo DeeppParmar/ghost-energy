@@ -144,10 +144,40 @@
         <div class="stat-desc" id="hw-info">Detecting...</div>
     </div>
 
-    <div class="bento-card">
+    <div class="bento-card" style="grid-column: span 3;">
         <div class="stat-heading">Deep Work Session</div>
-        <div class="stat-value" id="focus-timer">00:00</div>
-        <div class="stat-desc">Continuous occupancy timer</div>
+        <div class="stat-value" id="focus-timer" style="font-size: 2.2rem; margin: 0.5rem 0;">00:00</div>
+        <div class="stat-desc" style="margin-bottom: 1rem;">Continuous occupancy timer</div>
+        <div id="focus-milestones" style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <span id="ms-1m" class="milestone-badge" data-locked="true">🥉 1m Bronze</span>
+            <span id="ms-5m" class="milestone-badge" data-locked="true">🥈 5m Silver</span>
+            <span id="ms-30m" class="milestone-badge" data-locked="true">🥇 30m Gold</span>
+        </div>
     </div>
 </div>
+
+<style>
+    .milestone-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 0.35rem 0.75rem;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        font-weight: 800;
+        letter-spacing: 0.5px;
+        border: 1px solid var(--border);
+        background: rgba(255,255,255,0.02);
+        color: var(--text-dim);
+        opacity: 0.45;
+        transition: all 0.4s ease;
+    }
+    .milestone-badge.unlocked {
+        opacity: 1;
+        background: rgba(16, 185, 129, 0.12);
+        border-color: rgba(16, 185, 129, 0.4);
+        color: var(--success);
+        box-shadow: 0 0 12px rgba(16, 185, 129, 0.15);
+    }
+</style>
 {% endblock %}

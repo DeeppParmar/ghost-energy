@@ -272,6 +272,16 @@ class VisionHUD {
                 focusEl.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
             }
 
+            // Focus milestone badges
+            if (data.focus_milestones) {
+                const ms1 = document.getElementById('ms-1m');
+                const ms5 = document.getElementById('ms-5m');
+                const ms30 = document.getElementById('ms-30m');
+                if (ms1) ms1.classList.toggle('unlocked', !!data.focus_milestones['1m']);
+                if (ms5) ms5.classList.toggle('unlocked', !!data.focus_milestones['5m']);
+                if (ms30) ms30.classList.toggle('unlocked', !!data.focus_milestones['30m']);
+            }
+
             // Energy Alert Banner
             const alertBanner = document.getElementById('energy-alert');
             if (alertBanner) {
@@ -683,9 +693,32 @@ class VisionHUD {
             const d = await res.json();
             const r = document.getElementById('leader-rank');
             const desc = document.getElementById('leader-desc');
-            if (r) r.textContent = `${d.rank}/${d.total}`;
-            if (desc) desc.textContent = `Eco score rank today`;
-        } catch (e) {}
+            if (r) r.textContent = `#${d.rank} of ${d.total}`;
+            if (desc) desc.textContent = `Your eco ranking today`;
+
+            // Render full leaderboard table
+            const table = document.getElementById('leaderboard-table');
+            if (table && Array.isArray(d.scores)) {
+                table.innerHTML = d.scores.map((s, i) => {
+                    const isYou = s.name === 'You';
+                    const medals = ['🥇', '🥈', '🥉'];
+                    const medal = i < 3 ? medals[i] : `#${i + 1}`;
+                    const barW = Math.max(5, Math.min(100, s.eco_score));
+                    const barColor = isYou ? 'rgba(99,102,241,0.6)' : 'rgba(255,255,255,0.08)';
+                    const nameStyle = isYou ? 'color:#fff;font-weight:900;' : 'color:var(--text-dim);font-weight:600;';
+                    return `
+                        <div style="display:flex;align-items:center;gap:10px;padding:0.5rem 0;border-bottom:1px solid rgba(255,255,255,0.04);${ isYou ? 'background:rgba(99,102,241,0.06);margin:0 -0.5rem;padding:0.5rem;border-radius:8px;' : '' }">
+                            <span style="min-width:28px;text-align:center;font-size:0.9rem;">${medal}</span>
+                            <span style="flex:1;font-size:0.8rem;${nameStyle}">${s.name}</span>
+                            <div style="width:80px;height:6px;background:rgba(255,255,255,0.04);border-radius:3px;overflow:hidden;">
+                                <div style="width:${barW}%;height:100%;background:${barColor};border-radius:3px;transition:width 0.5s;"></div>
+                            </div>
+                            <span style="min-width:36px;text-align:right;font-size:0.75rem;font-weight:800;color:${s.eco_score >= 80 ? 'var(--success)' : s.eco_score >= 50 ? 'var(--warning)' : 'var(--danger)'}">${s.eco_score}</span>
+                        </div>
+                    `;
+                }).join('');
+            }
+        } catch (e) { console.error('Leaderboard error:', e); }
     }
 
     async loadSettings() {

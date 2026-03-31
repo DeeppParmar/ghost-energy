@@ -15,6 +15,21 @@ ELECTRICITY_RATE = 8.0    # ₹ per kWh
 BRIGHTNESS_THRESHOLD = 40 # Below this = Dark
 WINDOW_ZONE = [0.0, 0.0, 0.45, 0.65] # [x_start, y_start, x_end, y_end] as %
 
+# ── Multi-Zone Monitoring ──
+# Each zone gets its own bounding box (as % of frame) and label.
+# The detector will process human tracks in each zone independently.
+# Override these with your own coordinates for your camera angle.
+ZONES_MAP = {
+    "desk": {
+        "name": "Desk",
+        "bbox": [0.0, 0.0, 0.50, 1.0],   # Left half of frame
+    },
+    "lounge": {
+        "name": "Lounge",
+        "bbox": [0.50, 0.0, 1.0, 1.0],    # Right half of frame
+    },
+}
+
 # Night detection
 NIGHT_START_HOUR = 19 # 7 PM
 NIGHT_END_HOUR = 6    # 6 AM
