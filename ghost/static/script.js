@@ -34,6 +34,12 @@ class VisionHUD {
             testEmailBtn.onclick = () => this.testEmail();
         }
 
+        // Test Telegram (on Settings Page)
+        const testTelegramBtn = document.getElementById('test-telegram-btn');
+        if (testTelegramBtn) {
+            testTelegramBtn.onclick = () => this.testTelegram();
+        }
+
         // Report Generation (on Reports Page)
         const reportBtn = document.getElementById('generate-report-btn');
         if (reportBtn) {
@@ -724,12 +730,19 @@ class VisionHUD {
     async loadSettings() {
         if (!document.getElementById('receiver-email')) return;
         try {
-            const res = await fetch('/api/settings'); // Use API path
+            const res = await fetch('/api/settings');
             const data = await res.json();
             ['receiver-email', 'room-name', 'alert-delay', 'camera-source'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.value = data[id.replace('-', '_')] || '';
             });
+            // Telegram settings
+            const tgEnabled = document.getElementById('telegram-enabled');
+            const tgToken = document.getElementById('telegram-bot-token');
+            const tgChatId = document.getElementById('telegram-chat-id');
+            if (tgEnabled) tgEnabled.checked = !!data.telegram_enabled;
+            if (tgToken) tgToken.value = data.telegram_bot_token || '';
+            if (tgChatId) tgChatId.value = data.telegram_chat_id || '';
         } catch (e) {}
     }
 
@@ -741,6 +754,14 @@ class VisionHUD {
             alert_delay: document.getElementById('alert-delay').value,
             camera_source: document.getElementById('camera-source').value
         };
+
+        // Include Telegram settings if the fields exist on the page
+        const tgEnabled = document.getElementById('telegram-enabled');
+        const tgToken = document.getElementById('telegram-bot-token');
+        const tgChatId = document.getElementById('telegram-chat-id');
+        if (tgEnabled) payload.telegram_enabled = tgEnabled.checked;
+        if (tgToken) payload.telegram_bot_token = tgToken.value;
+        if (tgChatId) payload.telegram_chat_id = tgChatId.value;
 
         try {
             const res = await fetch('/api/settings', {
@@ -768,6 +789,27 @@ class VisionHUD {
             const data = await res.json();
             this.showStatusMsg(msgEl, data.success ? '✅ Protocol Confirmed' : '❌ Relay Nullified');
         } catch (e) { this.showStatusMsg(msgEl, '❌ Network Partition'); }
+    }
+
+    async testTelegram() {
+        const msgEl = document.getElementById('telegram-msg');
+        if (msgEl) {
+            msgEl.style.color = 'var(--text-dim)';
+            msgEl.textContent = '📲 Sending test message...';
+        }
+        try {
+            const res = await fetch('/api/test_telegram', { method: 'POST' });
+            const d = await res.json();
+            if (msgEl) {
+                msgEl.style.color = d.success ? 'var(--success)' : 'var(--danger)';
+                msgEl.textContent = d.message;
+            }
+        } catch (e) {
+            if (msgEl) {
+                msgEl.style.color = 'var(--danger)';
+                msgEl.textContent = '❌ Connection failed';
+            }
+        }
     }
 
     async generateReport() {

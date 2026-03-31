@@ -13,6 +13,11 @@
 <div class="bento-grid">
     <div class="bento-card large" style="grid-column: span 12;">
         <div class="settings-form" style="padding: 1rem;">
+            <!-- ═══ Email & General ═══ -->
+            <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px;
+                        color: var(--text-dim); font-weight: 800; margin-bottom: 1.5rem;">
+                📧 Email &amp; General
+            </div>
             <div class="setting-group" style="margin-bottom: 2rem;">
                 <label>Admin Notification Target</label>
                 <input type="email" id="receiver-email" placeholder="admin@lab.local">
@@ -29,12 +34,57 @@
                 <label>Camera Source (index or URL)</label>
                 <input type="text" id="camera-source" placeholder="0 or rtsp://...">
             </div>
-            <div style="display: flex; gap: 1rem;">
+
+            <!-- ═══ Telegram Alerts ═══ -->
+            <div style="border-top: 1px solid var(--border); padding-top: 2rem; margin-top: 2rem;">
+                <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px;
+                            color: var(--text-dim); font-weight: 800; margin-bottom: 1.5rem;">
+                    📲 Telegram Alerts
+                </div>
+
+                <div class="setting-group" style="margin-bottom: 1.25rem; display:flex; align-items:center; gap:1rem;">
+                    <label style="margin-bottom:0;">Enable Telegram Alerts</label>
+                    <div style="position:relative; width:48px; height:26px;">
+                        <input type="checkbox" id="telegram-enabled" style="opacity:0; width:0; height:0; position:absolute;">
+                        <label for="telegram-enabled" style="display:block; width:48px; height:26px; background: rgba(255,255,255,0.08); border:1px solid var(--border); border-radius:13px; cursor:pointer; transition: all 0.3s ease; position:relative; margin:0;">
+                            <span style="position:absolute; top:3px; left:3px; width:18px; height:18px; background:var(--text-dim); border-radius:50%; transition: all 0.3s ease;"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="setting-group" style="margin-bottom: 1.25rem;">
+                    <label>Bot Token</label>
+                    <input type="password" id="telegram-bot-token" placeholder="123456:ABCdef..." autocomplete="off">
+                </div>
+                <div class="setting-group" style="margin-bottom: 2rem;">
+                    <label>Chat ID</label>
+                    <input type="text" id="telegram-chat-id" placeholder="-100123456789 or @yourchannel">
+                </div>
+                <button class="btn-save btn-secondary" id="test-telegram-btn" style="width:100%; padding:1rem; margin-bottom: 0.5rem;">
+                    Test Telegram Channel
+                </button>
+                <div id="telegram-msg" style="margin-top:1rem; font-size:0.9rem; font-weight:600;"></div>
+            </div>
+
+            <!-- ═══ Actions ═══ -->
+            <div style="border-top: 1px solid var(--border); padding-top: 2rem; margin-top: 2rem; display: flex; gap: 1rem;">
                 <button class="btn-save" id="save-settings" style="flex: 2; padding: 1.25rem;">Commit Changes</button>
-                <button class="btn-save btn-secondary" id="test-email-btn" style="flex: 1;">Test Channel</button>
+                <button class="btn-save btn-secondary" id="test-email-btn" style="flex: 1;">Test Email</button>
             </div>
             <div id="settings-msg" style="margin-top: 1.5rem; font-size: 0.9rem; font-weight: 600;"></div>
         </div>
     </div>
 </div>
+
+<style>
+    /* Toggle switch styling */
+    #telegram-enabled:checked + label {
+        background: rgba(16, 185, 129, 0.25) !important;
+        border-color: rgba(16, 185, 129, 0.5) !important;
+    }
+    #telegram-enabled:checked + label span {
+        transform: translateX(22px) !important;
+        background: var(--success) !important;
+        box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
+    }
+</style>
 {% endblock %}

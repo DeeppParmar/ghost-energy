@@ -297,11 +297,19 @@ def load_settings():
                 if isinstance(raw_source, str) and raw_source.isdigit():
                     raw_source = int(raw_source)
                 config.CAMERA_SOURCE = raw_source
+            # ── Telegram settings ──
+            if 'telegram_enabled' in saved:
+                config.TELEGRAM_ENABLED = bool(saved['telegram_enabled'])
+            if 'telegram_bot_token' in saved:
+                config.TELEGRAM_BOT_TOKEN = saved['telegram_bot_token']
+            if 'telegram_chat_id' in saved:
+                config.TELEGRAM_CHAT_ID = saved['telegram_chat_id']
             print(f"[SETTINGS] Loaded from {SETTINGS_FILE}")
             print(f"  → Receiver: {config.RECEIVER_EMAIL}")
             print(f"  → Room: {config.ROOM_NAME}")
             print(f"  → Alert Delay: {config.ALERT_DELAY_SECONDS}s")
             print(f"  → Camera Source: {getattr(config, 'CAMERA_SOURCE', 0)}")
+            print(f"  → Telegram: {'ON' if getattr(config, 'TELEGRAM_ENABLED', False) else 'OFF'}")
         except Exception as e:
             print(f"[SETTINGS] Failed to load: {e}")
 
@@ -312,7 +320,10 @@ def save_settings():
         'receiver_email': config.RECEIVER_EMAIL,
         'room_name': config.ROOM_NAME,
         'alert_delay': config.ALERT_DELAY_SECONDS,
-        'camera_source': getattr(config, 'CAMERA_SOURCE', 0)
+        'camera_source': getattr(config, 'CAMERA_SOURCE', 0),
+        'telegram_enabled': getattr(config, 'TELEGRAM_ENABLED', False),
+        'telegram_bot_token': getattr(config, 'TELEGRAM_BOT_TOKEN', ''),
+        'telegram_chat_id': getattr(config, 'TELEGRAM_CHAT_ID', ''),
     }
     try:
         with open(SETTINGS_FILE, 'w') as f:
@@ -579,6 +590,9 @@ def status():
         "5m": focus_seconds >= 300,
         "30m": focus_seconds >= 1800,
     }
+    # Compute the most recent last_seen_time across all monitoring zones.
+    _zone_times = [zs.get("last_seen_time", 0) for zs in monitor.zones_state.values()]
+    _latest_seen = max(_zone_times) if _zone_times else time.time()
     return jsonify({
         "person_count": monitor.person_count,
         "light_status": monitor.light_status,
@@ -587,7 +601,7 @@ def status():
         "luminance": getattr(monitor, "luminance", None),
         "light_debug": getattr(monitor, "light_debug", {}),
         "is_energy_wasted": monitor.is_energy_wasted,
-        "time_since_presence": int(time.time() - monitor.last_seen_time),
+        "time_since_presence": int(time.time() - _latest_seen),
         "ai_fps": monitor._ai_fps,
         "detection_confidence": getattr(monitor, "detection_confidence", None),
         "verifier_active": getattr(getattr(monitor, "_verifier_thread", None), "is_alive", lambda: False)(),
@@ -645,7 +659,10 @@ def get_settings():
         "receiver_email": config.RECEIVER_EMAIL,
         "room_name": config.ROOM_NAME,
         "alert_delay": config.ALERT_DELAY_SECONDS,
-        "camera_source": getattr(config, "CAMERA_SOURCE", 0)
+        "camera_source": getattr(config, "CAMERA_SOURCE", 0),
+        "telegram_enabled": getattr(config, "TELEGRAM_ENABLED", False),
+        "telegram_bot_token": getattr(config, "TELEGRAM_BOT_TOKEN", ""),
+        "telegram_chat_id": getattr(config, "TELEGRAM_CHAT_ID", ""),
     })
 
 @app.route('/api/settings', methods=['POST'])
@@ -684,10 +701,19 @@ def update_settings():
             _restart_camera_thread()
             camera_restarted = True
 
+    # ── Telegram settings ──
+    if 'telegram_enabled' in data:
+        config.TELEGRAM_ENABLED = bool(data['telegram_enabled'])
+    if 'telegram_bot_token' in data:
+        config.TELEGRAM_BOT_TOKEN = data['telegram_bot_token'].strip()
+    if 'telegram_chat_id' in data:
+        config.TELEGRAM_CHAT_ID = data['telegram_chat_id'].strip()
+
     monitor.alert_sent = False
     print(
         f"[SETTINGS] Updated → Email: {config.RECEIVER_EMAIL}, Room: {config.ROOM_NAME}, "
-        f"Delay: {config.ALERT_DELAY_SECONDS}s, Camera: {getattr(config, 'CAMERA_SOURCE', 0)}"
+        f"Delay: {config.ALERT_DELAY_SECONDS}s, Camera: {getattr(config, 'CAMERA_SOURCE', 0)}, "
+        f"Telegram: {'ON' if getattr(config, 'TELEGRAM_ENABLED', False) else 'OFF'}"
     )
 
     saved = save_settings()
@@ -699,7 +725,8 @@ def update_settings():
         "room_name": config.ROOM_NAME,
         "alert_delay": config.ALERT_DELAY_SECONDS,
         "camera_source": getattr(config, "CAMERA_SOURCE", 0),
-        "camera_restarted": camera_restarted
+        "camera_restarted": camera_restarted,
+        "telegram_enabled": getattr(config, "TELEGRAM_ENABLED", False),
     })
 
 
@@ -712,6 +739,17 @@ def test_email():
         "message": message,
         "receiver_email": config.RECEIVER_EMAIL
     })
+
+
+@app.route('/api/test_telegram', methods=['POST'])
+def test_telegram():
+    """Send a test Telegram message to verify the bot token and chat ID."""
+    try:
+        from logic.telegram_notifier import send_test_message
+        success, message = send_test_message()
+    except ImportError:
+        success, message = False, "Telegram notifier module not found."
+    return jsonify({"success": success, "message": message})
 
 
 @app.route('/api/history')

@@ -239,9 +239,9 @@ class RoomMonitor:
 
     # ── Email Alerting ────────────────────────────────────────────────
 
-    def trigger_alert(self, zone_name="default"):
+    def trigger_alert(self, zone_name="default", frame=None):
         threading.Thread(target=self._send_email_alert, args=(zone_name,), daemon=True).start()
-        threading.Thread(target=self._send_telegram_alert, args=(zone_name,), daemon=True).start()
+        threading.Thread(target=lambda: self._send_telegram_alert(zone_name, frame=frame), daemon=True).start()
 
     def _send_email_alert(self, zone_name="default"):
         receiver = config.RECEIVER_EMAIL
@@ -286,35 +286,66 @@ class RoomMonitor:
             print(f"[ERROR] Test email failed: {e}")
             return False, str(e)
 
-    def _send_telegram_alert(self, zone_name="default"):
+    def _send_telegram_alert(self, zone_name="default", frame=None):
+        """Send Telegram alert with optional live frame snapshot."""
         if not getattr(config, "TELEGRAM_ENABLED", False):
             return
-        token = getattr(config, "TELEGRAM_BOT_TOKEN", "")
-        chat_id = getattr(config, "TELEGRAM_CHAT_ID", "")
-        if not token or not chat_id:
-            return
-        text = (
-            f"⚡ ENERGY WASTE DETECTED ⚡\n"
-            f"📍 Room: {config.ROOM_NAME}\n"
-            f"🎯 Zone: {zone_name}\n"
-            f"Lights ON, but no human presence."
-        )
-        snapshot_path = getattr(self, "_latest_snapshot_path", None)
         try:
+            from logic.telegram_notifier import send_alert_with_snapshot, send_message
+        except ImportError:
+            print("[TELEGRAM] telegram_notifier module not available")
+            return
+
+        # Compute waste metrics for the caption
+        zone_data = self.zones_state.get(zone_name)
+        if zone_data is None:
+            # Try matching by zone name
+            for zid, zs in self.zones_state.items():
+                if zs.get("name") == zone_name:
+                    zone_data = zs
+                    break
+        duration = 0.0
+        if zone_data:
+            duration = time.time() - zone_data.get("last_seen_time", time.time())
+        money = (duration / 3600.0) * (
+            getattr(config, "BULB_WATTAGE", 200) / 1000.0
+        ) * getattr(config, "ELECTRICITY_RATE", 8.0)
+
+        if frame is not None:
+            send_alert_with_snapshot(
+                frame_bgr=frame,
+                room=config.ROOM_NAME,
+                zone=zone_name,
+                duration=duration,
+                money=money,
+            )
+        else:
+            # Fallback: try to use saved snapshot file
+            snapshot_path = getattr(self, "_latest_snapshot_path", None)
             if snapshot_path and os.path.exists(snapshot_path):
-                url = f"https://api.telegram.org/bot{token}/sendPhoto"
-                with open(snapshot_path, "rb") as img_f:
-                    requests.post(
-                        url,
-                        data={"chat_id": chat_id, "caption": text},
-                        files={"photo": img_f},
-                        timeout=12,
+                try:
+                    with open(snapshot_path, "rb") as f:
+                        from logic.telegram_notifier import send_photo
+                        caption = (
+                            f"⚠️ <b>Energy Waste Alert</b>\n"
+                            f"🏢 <b>Room:</b> {config.ROOM_NAME}\n"
+                            f"📍 <b>Zone:</b> {zone_name}\n"
+                            f"⏱ <b>Duration:</b> {round(duration, 1)}s\n"
+                            f"💸 <b>Cost Wasted:</b> ₹{round(money, 2)}"
+                        )
+                        send_photo(f.read(), caption)
+                except Exception:
+                    send_message(
+                        f"⚠️ <b>Energy Waste Alert</b>\n"
+                        f"🏢 Room: {config.ROOM_NAME} | Zone: {zone_name}\n"
+                        f"⏱ Duration: {round(duration, 1)}s | 💸 ₹{round(money, 2)}"
                     )
             else:
-                url = f"https://api.telegram.org/bot{token}/sendMessage"
-                requests.post(url, data={"chat_id": chat_id, "text": text}, timeout=10)
-        except Exception as e:
-            print(f"[TELEGRAM] Failed: {e}")
+                send_message(
+                    f"⚠️ <b>Energy Waste Alert</b>\n"
+                    f"🏢 Room: {config.ROOM_NAME} | Zone: {zone_name}\n"
+                    f"⏱ Duration: {round(duration, 1)}s | 💸 ₹{round(money, 2)}"
+                )
 
     def log_energy_waste(self, duration, frame=None, zone_name="default"):
         # Write to the canonical reports folder (stable across different working dirs).
@@ -509,7 +540,7 @@ class RoomMonitor:
                     if not zstate["alert_sent"]:
                         zstate["alert_sent"] = True
                         self.alert_sent = True
-                        self.trigger_alert(zone_name=zstate["name"])
+                        self.trigger_alert(zone_name=zstate["name"], frame=frame)
                         self.log_energy_waste(empty_duration, frame=frame, zone_name=zstate["name"])
                 else:
                     zstate["is_energy_wasted"] = False
