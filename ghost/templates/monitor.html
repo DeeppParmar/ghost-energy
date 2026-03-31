@@ -181,3 +181,36 @@
     }
 </style>
 {% endblock %}
+
+{% block scripts %}
+<script>
+    // Link stream mode toggle
+    const streamMode = document.getElementById('stream-mode');
+    streamMode.addEventListener('change', (e) => {
+        const feed = document.getElementById('video-feed');
+        feed.src = "/video_feed?filter=" + e.target.value;
+    });
+
+    async function updateFocusTimer() {
+        try {
+            const resp = await fetch('/status');
+            const data = await resp.json();
+            
+            const focus = data.focus_seconds || 0;
+            const m = Math.floor(focus / 60).toString().padStart(2, '0');
+            const s = (focus % 60).toString().padStart(2, '0');
+            document.getElementById('focus-timer').innerText = m + ":" + s;
+            
+            const ms = data.focus_milestones || {};
+            const m1 = document.getElementById('ms-1m');
+            const m5 = document.getElementById('ms-5m');
+            const m30 = document.getElementById('ms-30m');
+            
+            if(ms["1m"]) m1.classList.add('unlocked'); else m1.classList.remove('unlocked');
+            if(ms["5m"]) m5.classList.add('unlocked'); else m5.classList.remove('unlocked');
+            if(ms["30m"]) m30.classList.add('unlocked'); else m30.classList.remove('unlocked');
+        } catch(e) {}
+    }
+    setInterval(updateFocusTimer, 1000);
+</script>
+{% endblock %}

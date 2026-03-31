@@ -149,9 +149,38 @@
         }
     }
 
+    async function updateAnalytics() {
+        try {
+            const projResp = await fetch('/api/projection');
+            const pData = await projResp.json();
+            document.getElementById('projection-hours').innerText = pData.projected_hours + " hrs";
+            document.getElementById('projection-money').innerText = "₹" + pData.projected_cost + " (AI Predicted)";
+        } catch(e) {}
+
+        try {
+            const leadResp = await fetch('/api/leaderboard');
+            const lData = await leadResp.json();
+            const lb = lData.leaderboard;
+            let userRank = lb.findIndex(x => x.is_user) + 1;
+            document.getElementById('leader-rank').innerText = "#" + userRank;
+            let h = "";
+            lb.forEach((item, idx) => {
+                let badge = idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : "🔹";
+                let style = item.is_user ? "background:rgba(16,185,129,0.1); border:1px solid var(--success);" : "background:rgba(255,255,255,0.02);";
+                h += `<div style="display:flex; justify-content:space-between; padding:8px 12px; margin-bottom:6px; border-radius:8px; ${style}">
+                        <span style="color:#fff; font-size:0.85rem; font-weight:700;">${badge} ${idx+1}. ${item.name}</span>
+                        <span style="color:var(--text-dim); font-size:0.85rem;">Score: ${item.score}</span>
+                      </div>`;
+            });
+            document.getElementById('leaderboard-table').innerHTML = h;
+        } catch(e) {}
+    }
+
     setInterval(updateClock, 1000);
     setInterval(updateHeartbeat, 2000);
+    setInterval(updateAnalytics, 30000);
     updateClock();
     updateHeartbeat();
+    updateAnalytics();
 </script>
 {% endblock %}

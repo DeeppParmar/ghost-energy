@@ -374,8 +374,11 @@ def generate_frames():
 
 
 def _apply_thermal(frame):
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    return cv2.applyColorMap(gray, cv2.COLORMAP_INFERNO)
+    if len(frame.shape) == 3:
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = frame
+    return cv2.applyColorMap(gray, cv2.COLORMAP_JET)
 
 
 _trail_prev_gray = None
@@ -446,19 +449,123 @@ def reports_page():
 def settings_page():
     return render_template('settings.html')
 
+@app.route('/bill')
+def bill_page():
+    return render_template('bill.html')
+
 @app.route('/video_feed')
 def video_feed():
+    filter_mode = request.args.get('filter', 'normal')
+    if filter_mode == 'thermal':
+        return Response(generate_frames_mode("thermal"), mimetype='multipart/x-mixed-replace; boundary=frame')
+    elif filter_mode == 'trails':
+        return Response(generate_frames_mode("trails"), mimetype='multipart/x-mixed-replace; boundary=frame')
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
 
 @app.route('/video_feed_thermal')
 def video_feed_thermal():
     return Response(generate_frames_mode("thermal"), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-
 @app.route('/video_feed_trails')
 def video_feed_trails():
     return Response(generate_frames_mode("trails"), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/api/evidence')
+def api_evidence():
+    evidence_list = db.list_evidence() if db.is_ready() else []
+    items = []
+    for e in evidence_list:
+        if e.get('snapshot_path'):
+            filename = os.path.basename(e['snapshot_path'])
+            items.append({
+                "timestamp": e['timestamp'],
+                "duration_seconds": e['duration_seconds'],
+                "money_wasted": e['money_wasted'],
+                "snapshot_url": f"/evidence/{filename}",
+                "room": e['room']
+            })
+    return jsonify({"items": items})
+
+@app.route('/evidence/<filename>')
+def serve_evidence(filename):
+    evidence_dir = os.path.join(os.path.dirname(__file__), '..', 'evidence')
+    return send_file(os.path.join(evidence_dir, filename))
+
+@app.route('/api/projection')
+def energy_projection():
+    try:
+        from sklearn.linear_model import LinearRegression
+    except ImportError:
+        return jsonify({"projected_hours": 0, "projected_cost": 0, "error": "sklearn not installed"}), 500
+        
+    import numpy as np
+    from collections import defaultdict
+    daily_waste = defaultdict(float)
+    entries = db.list_history(limit=5000) if db.is_ready() else []
+    for row in entries:
+        ts = row.get('Timestamp', '')
+        if ts:
+            day = ts[:10]
+            daily_waste[day] += float(row.get('Duration_Seconds', 0) or 0)
+            
+    X = np.arange(7).reshape(-1, 1)
+    y = []
+    for i in range(6, -1, -1):
+        d = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+        y.append(daily_waste.get(d, 0) / 3600.0)
+        
+    model = LinearRegression()
+    model.fit(X, y)
+    next_pred = max(0, model.predict([[7]])[0])
+    cost_pred = next_pred * (config.BULB_WATTAGE / 1000.0) * config.ELECTRICITY_RATE
+    return jsonify({"projected_hours": round(next_pred, 2), "projected_cost": round(cost_pred, 2)})
+
+@app.route('/api/daily_bill')
+def daily_bill():
+    today = datetime.now().strftime('%Y-%m-%d')
+    total_waste = 0.0
+    total_cost = 0.0
+    entries = db.list_history(limit=5000) if db.is_ready() else []
+    items = []
+    for row in entries:
+        ts = row.get('Timestamp', '')
+        if ts.startswith(today):
+            dur = float(row.get('Duration_Seconds', 0) or 0)
+            cost = float(row.get('Money_Wasted', 0) or 0)
+            total_waste += dur
+            total_cost += cost
+            items.append({
+                "time": ts[11:],
+                "duration": round(dur, 2),
+                "cost": round(cost, 2),
+                "zone": row.get('Zone', 'default')
+            })
+    return jsonify({
+        "date": today,
+        "total_hours": round(total_waste/3600, 2),
+        "total_cost": round(total_cost, 2),
+        "items": items
+    })
+
+@app.route('/api/leaderboard')
+def leaderboard_api():
+    today = datetime.now().strftime('%Y-%m-%d')
+    user_waste_sec = 0.0
+    entries = db.list_history(limit=5000) if db.is_ready() else []
+    for row in entries:
+        ts = row.get('Timestamp', '')
+        if ts.startswith(today):
+            user_waste_sec += float(row.get('Duration_Seconds', 0) or 0)
+            
+    user_score = max(0, 100 - int(user_waste_sec/60))
+    leaderboard = [
+        {"name": "Alpha Tech Office", "score": 95},
+        {"name": "Desk 4", "score": 88},
+        {"name": "Lounge Area", "score": 75},
+        {"name": "Your Desk (You)", "score": user_score, "is_user": True}
+    ]
+    leaderboard.sort(key=lambda x: x["score"], reverse=True)
+    return jsonify({"leaderboard": leaderboard})
 
 
 # ── API Routes ──

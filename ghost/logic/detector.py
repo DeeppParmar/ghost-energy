@@ -75,7 +75,6 @@ class RoomMonitor:
 
         # ── State ──
         self.person_count = 0
-        self.last_seen_time = time.time()
         self.light_status = "Dark"
         # Numeric luminance value (0-255 avg grayscale) for UI telemetry.
         self.luminance = None
@@ -86,6 +85,29 @@ class RoomMonitor:
         # Average confidence (0.0-1.0) from the primary tracker for current detections.
         # Used by the /health and /status endpoints.
         self.detection_confidence = None
+
+        # ── Multi-Zone State ──
+        self.zones_state = {}
+        zm = getattr(config, 'ZONES_MAP', {})
+        if zm:
+            for zid, zdata in zm.items():
+                self.zones_state[zid] = {
+                    "name": zdata.get("name", zid),
+                    "bbox": zdata.get("bbox", [0.0, 0.0, 1.0, 1.0]),
+                    "person_count": 0,
+                    "last_seen_time": time.time(),
+                    "is_energy_wasted": False,
+                    "alert_sent": False
+                }
+        else:
+            self.zones_state["default"] = {
+                "name": "Default",
+                "bbox": getattr(config, 'WINDOW_ZONE', [0.0, 0.0, 1.0, 1.0]),
+                "person_count": 0,
+                "last_seen_time": time.time(),
+                "is_energy_wasted": False,
+                "alert_sent": False
+            }
 
         # ── Inference settings ──
         self._infer_size = (320, 320) if self._device == 'cuda' else (256, 256)
@@ -217,16 +239,14 @@ class RoomMonitor:
 
     # ── Email Alerting ────────────────────────────────────────────────
 
-    def trigger_alert(self):
-        if not self.alert_sent:
-            self.alert_sent = True
-            threading.Thread(target=self._send_email_alert, daemon=True).start()
-            threading.Thread(target=self._send_telegram_alert, daemon=True).start()
+    def trigger_alert(self, zone_name="default"):
+        threading.Thread(target=self._send_email_alert, args=(zone_name,), daemon=True).start()
+        threading.Thread(target=self._send_telegram_alert, args=(zone_name,), daemon=True).start()
 
-    def _send_email_alert(self):
+    def _send_email_alert(self, zone_name="default"):
         receiver = config.RECEIVER_EMAIL
-        subject = f"ENERGY ALERT: {config.ROOM_NAME}"
-        body = (f"The Artificial Lights are ON in {config.ROOM_NAME}, "
+        subject = f"ENERGY ALERT: {config.ROOM_NAME} [{zone_name}]"
+        body = (f"The Artificial Lights are ON in {config.ROOM_NAME} (Zone: {zone_name}), "
                 f"but no human presence has been detected for over {config.ALERT_DELAY_SECONDS} seconds.")
 
         print(f"\n[ALERT!!!] {subject}")
@@ -266,7 +286,7 @@ class RoomMonitor:
             print(f"[ERROR] Test email failed: {e}")
             return False, str(e)
 
-    def _send_telegram_alert(self):
+    def _send_telegram_alert(self, zone_name="default"):
         if not getattr(config, "TELEGRAM_ENABLED", False):
             return
         token = getattr(config, "TELEGRAM_BOT_TOKEN", "")
@@ -274,9 +294,10 @@ class RoomMonitor:
         if not token or not chat_id:
             return
         text = (
-            f"ENERGY ALERT\n"
-            f"Room: {config.ROOM_NAME}\n"
-            f"No human detected with lights ON."
+            f"⚡ ENERGY WASTE DETECTED ⚡\n"
+            f"📍 Room: {config.ROOM_NAME}\n"
+            f"🎯 Zone: {zone_name}\n"
+            f"Lights ON, but no human presence."
         )
         snapshot_path = getattr(self, "_latest_snapshot_path", None)
         try:
@@ -295,7 +316,7 @@ class RoomMonitor:
         except Exception as e:
             print(f"[TELEGRAM] Failed: {e}")
 
-    def log_energy_waste(self, duration, frame=None):
+    def log_energy_waste(self, duration, frame=None, zone_name="default"):
         # Write to the canonical reports folder (stable across different working dirs).
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ghost/
         reports_dir = os.path.join(base_dir, 'reports')
@@ -326,7 +347,7 @@ class RoomMonitor:
             status="ALERT_SENT",
             money_wasted=money_wasted,
             snapshot_path=snapshot_path,
-            zone_name="default",
+            zone_name=zone_name,
         )
 
     # ── Core Detection Pipeline ───────────────────────────────────────
@@ -454,25 +475,44 @@ class RoomMonitor:
         else:
             self.person_count = raw_count
 
-        # ── Light analysis & alerting ──
+        # ── Multi-Zone Tracking & Alerting ──
         light = self.analyze_light(frame)
         current_time = time.time()
 
-        if self.person_count > 0:
-            self.last_seen_time = current_time
-            self.is_energy_wasted = False
-            self.alert_sent = False
-        else:
-            empty_duration = current_time - self.last_seen_time
-            # ONLY waste if Artificial Light is ON and room is Empty
-            if light == "Artificial Light" and empty_duration >= config.ALERT_DELAY_SECONDS:
-                self.is_energy_wasted = True
-                if not self.alert_sent:
-                    self.trigger_alert()
-                    self.log_energy_waste(empty_duration, frame=frame)
+        self.person_count = len(valid_humans)
+
+        zone_counts = {zid: 0 for zid in self.zones_state.keys()}
+        for human in valid_humans:
+            bx1, by1, bx2, by2 = human[:4]
+            cx = (bx1 + bx2) / 2.0 / infer_w
+            cy = (by1 + by2) / 2.0 / infer_h
+            for zid, zstate in self.zones_state.items():
+                zx1, zy1, zx2, zy2 = zstate["bbox"]
+                if zx1 <= cx <= zx2 and zy1 <= cy <= zy2:
+                    zone_counts[zid] += 1
+
+        self.is_energy_wasted = False
+        self.alert_sent = False
+
+        for zid, zstate in self.zones_state.items():
+            count = zone_counts[zid]
+            zstate["person_count"] = count
+            if count > 0:
+                zstate["last_seen_time"] = current_time
+                zstate["is_energy_wasted"] = False
+                zstate["alert_sent"] = False
             else:
-                # If it is Dark or Natural or just started being empty, no waste.
-                self.is_energy_wasted = False
+                empty_duration = current_time - zstate["last_seen_time"]
+                if light == "Artificial Light" and empty_duration >= config.ALERT_DELAY_SECONDS:
+                    zstate["is_energy_wasted"] = True
+                    self.is_energy_wasted = True
+                    if not zstate["alert_sent"]:
+                        zstate["alert_sent"] = True
+                        self.alert_sent = True
+                        self.trigger_alert(zone_name=zstate["name"])
+                        self.log_energy_waste(empty_duration, frame=frame, zone_name=zstate["name"])
+                else:
+                    zstate["is_energy_wasted"] = False
 
         # ── Track AI FPS ──
         t_elapsed = time.time() - t_start

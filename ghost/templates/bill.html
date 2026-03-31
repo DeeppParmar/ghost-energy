@@ -1,364 +1,111 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Energy Invoice — {{ bill_date }}</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800;900&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --ink: #0f172a;
-            --ink-dim: #64748b;
-            --ink-light: #94a3b8;
-            --surface: #ffffff;
-            --border: #e2e8f0;
-            --accent: #6366f1;
-            --accent-bg: #eef2ff;
-            --danger: #ef4444;
-            --success: #10b981;
+{% extends "base.html" %}
+
+{% block title %}Daily Bill | VisionCore{% endblock %}
+
+{% block content %}
+<div class="invoice-wrapper" style="max-width: 600px; margin: 2rem auto; padding: 2.5rem; background: #fff; color: #000; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);">
+    <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #000; padding-bottom: 1.5rem; margin-bottom: 1.5rem;">
+        <div>
+            <h1 style="margin: 0; font-size: 2rem; font-weight: 900; letter-spacing: -1px; text-transform: uppercase;">Electricity Invoice</h1>
+            <div style="font-size: 0.9rem; font-weight: 700; color: #555; margin-top: 0.25rem;">VisionCore Enterprise Monitoring</div>
+        </div>
+        <div style="text-align: right;">
+            <div style="font-size: 0.85rem; text-transform: uppercase; font-weight: 800; color: #777;">Date of Issue</div>
+            <div id="bill-date" style="font-size: 1.2rem; font-weight: 700;">--</div>
+        </div>
+    </div>
+
+    <div style="margin-bottom: 2rem;">
+        <div style="font-size: 0.8rem; text-transform: uppercase; font-weight: 800; color: #777; margin-bottom: 0.5rem;">Billed Entity</div>
+        <div style="font-size: 1.1rem; font-weight: 700;">Advanced Physics Lab</div>
+        <div style="font-size: 0.9rem; color: #444;">Energy Waste Audit</div>
+    </div>
+
+    <table style="width: 100%; border-collapse: collapse; margin-bottom: 2rem;">
+        <thead>
+            <tr style="border-bottom: 2px solid #000; text-align: left; font-size: 0.8rem; text-transform: uppercase;">
+                <th style="padding: 0.75rem 0;">Time</th>
+                <th style="padding: 0.75rem 0;">Zone</th>
+                <th style="padding: 0.75rem 0; text-align: right;">Duration</th>
+                <th style="padding: 0.75rem 0; text-align: right;">Cost (INR)</th>
+            </tr>
+        </thead>
+        <tbody id="bill-items">
+            <!-- Dynamic items get injected here -->
+        </tbody>
+        <tfoot>
+            <tr style="border-top: 2px solid #000; font-weight: 800; font-size: 1.1rem;">
+                <td colspan="2" style="padding: 1rem 0;">TOTAL WASTE</td>
+                <td id="bill-total-hours" style="padding: 1rem 0; text-align: right;">-- hrs</td>
+                <td id="bill-total-cost" style="padding: 1rem 0; text-align: right;">₹ --</td>
+            </tr>
+        </tfoot>
+    </table>
+
+    <div style="text-align: center; font-size: 0.85rem; color: #666; border-top: 1px dashed #ccc; padding-top: 1.5rem;">
+        This is an automatically generated projection of non-productive energy drain.
+    </div>
+</div>
+
+<style>
+    body {
+        /* Set background slightly tighter for printing context if needed */
+        background-color: var(--bg-base);
+    }
+    @media print {
+        body * {
+            visibility: hidden;
         }
-
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-
-        body {
-            font-family: 'Outfit', system-ui, sans-serif;
-            background: #f8fafc;
-            color: var(--ink);
-            min-height: 100vh;
-            padding: 2rem;
+        .invoice-wrapper, .invoice-wrapper * {
+            visibility: visible;
         }
-
-        .invoice {
-            max-width: 800px;
-            margin: 0 auto;
-            background: var(--surface);
-            border-radius: 20px;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
-            overflow: hidden;
+        .invoice-wrapper {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            margin: 0;
+            box-shadow: none;
         }
+    }
+</style>
+{% endblock %}
 
-        .invoice-header {
-            background: linear-gradient(135deg, #6366f1, #8b5cf6, #a78bfa);
-            color: #fff;
-            padding: 2.5rem 3rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-        }
-
-        .invoice-brand h1 {
-            font-size: 1.8rem;
-            font-weight: 900;
-            letter-spacing: -0.5px;
-            margin-bottom: 0.25rem;
-        }
-
-        .invoice-brand p {
-            font-size: 0.8rem;
-            opacity: 0.8;
-            font-weight: 500;
-            letter-spacing: 0.5px;
-        }
-
-        .invoice-meta {
-            text-align: right;
-            font-size: 0.85rem;
-        }
-
-        .invoice-meta .label {
-            font-size: 0.65rem;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            opacity: 0.7;
-            font-weight: 700;
-            margin-bottom: 0.15rem;
-        }
-
-        .invoice-meta .value {
-            font-weight: 800;
-            font-size: 1.05rem;
-            margin-bottom: 0.75rem;
-        }
-
-        .invoice-body { padding: 2.5rem 3rem; }
-
-        .invoice-info {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 2rem;
-            margin-bottom: 2.5rem;
-            padding-bottom: 2rem;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .info-block .info-label {
-            font-size: 0.6rem;
-            text-transform: uppercase;
-            letter-spacing: 2.5px;
-            color: var(--ink-light);
-            font-weight: 800;
-            margin-bottom: 0.35rem;
-        }
-
-        .info-block .info-value {
-            font-size: 1rem;
-            font-weight: 700;
-            color: var(--ink);
-        }
-
-        .line-items { width: 100%; border-collapse: collapse; margin-bottom: 2rem; }
-
-        .line-items thead tr {
-            border-bottom: 2px solid var(--ink);
-        }
-
-        .line-items th {
-            text-align: left;
-            padding: 0.75rem 0.5rem;
-            font-size: 0.6rem;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-            color: var(--ink-dim);
-            font-weight: 800;
-        }
-
-        .line-items th:last-child { text-align: right; }
-
-        .line-items td {
-            padding: 0.85rem 0.5rem;
-            font-size: 0.85rem;
-            font-weight: 500;
-            border-bottom: 1px solid var(--border);
-            color: var(--ink);
-        }
-
-        .line-items td:last-child {
-            text-align: right;
-            font-family: 'JetBrains Mono', 'Fira Code', monospace;
-            font-weight: 700;
-        }
-
-        .line-items tbody tr:hover { background: #f8fafc; }
-
-        .totals-section {
-            display: flex;
-            justify-content: flex-end;
-            margin-bottom: 2.5rem;
-        }
-
-        .totals-box {
-            min-width: 280px;
-            border: 1px solid var(--border);
-            border-radius: 16px;
-            overflow: hidden;
-        }
-
-        .totals-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 0.85rem 1.25rem;
-            font-size: 0.85rem;
-            font-weight: 600;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .totals-row:last-child { border-bottom: none; }
-
-        .totals-row.grand {
-            background: var(--ink);
-            color: #fff;
-            font-size: 1.1rem;
-            font-weight: 900;
-        }
-
-        .totals-row .t-label { color: var(--ink-dim); }
-        .totals-row.grand .t-label { color: rgba(255,255,255,0.7); }
-
-        .invoice-footer {
-            text-align: center;
-            padding: 1.5rem 3rem 2.5rem;
-            border-top: 1px solid var(--border);
-            color: var(--ink-light);
-            font-size: 0.75rem;
-            font-weight: 500;
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 3rem 0;
-            color: var(--ink-light);
-            font-size: 0.9rem;
-        }
-
-        .empty-state .icon { font-size: 2rem; margin-bottom: 0.5rem; }
-
-        /* Actions bar - hidden on print */
-        .actions-bar {
-            max-width: 800px;
-            margin: 1.5rem auto;
-            display: flex;
-            gap: 0.75rem;
-            justify-content: center;
-        }
-
-        .btn-print {
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
-            color: #fff;
-            border: none;
-            padding: 0.85rem 2rem;
-            font-family: 'Outfit', sans-serif;
-            font-size: 0.85rem;
-            font-weight: 800;
-            letter-spacing: 0.5px;
-            border-radius: 12px;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
-        }
-
-        .btn-print:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4); }
-
-        .btn-back {
-            background: #fff;
-            color: var(--ink);
-            border: 1px solid var(--border);
-            padding: 0.85rem 2rem;
-            font-family: 'Outfit', sans-serif;
-            font-size: 0.85rem;
-            font-weight: 700;
-            border-radius: 12px;
-            cursor: pointer;
-            text-decoration: none;
-            transition: all 0.2s ease;
-        }
-
-        .btn-back:hover { background: #f8fafc; }
-
-        .status-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 0.2rem 0.6rem;
-            border-radius: 999px;
-            font-size: 0.7rem;
-            font-weight: 800;
-            letter-spacing: 0.5px;
-        }
-
-        .status-chip.alert {
-            background: rgba(239,68,68,0.1);
-            color: var(--danger);
-        }
-
-        @media print {
-            body { background: #fff; padding: 0; }
-            .actions-bar { display: none !important; }
-            .invoice { box-shadow: none; border-radius: 0; }
-            .invoice-header {
-                -webkit-print-color-adjust: exact;
-                print-color-adjust: exact;
+{% block scripts %}
+<script>
+    async function loadBill() {
+        try {
+            const resp = await fetch('/api/daily_bill');
+            const data = await resp.json();
+            
+            document.getElementById('bill-date').innerText = data.date;
+            document.getElementById('bill-total-hours').innerText = data.total_hours + " hrs";
+            document.getElementById('bill-total-cost').innerText = "₹ " + data.total_cost;
+            
+            let html = "";
+            if (data.items && data.items.length > 0) {
+                data.items.forEach(item => {
+                    html += `
+                        <tr style="border-bottom: 1px solid #eee;">
+                            <td style="padding: 0.75rem 0; font-size: 0.9rem;">${item.time}</td>
+                            <td style="padding: 0.75rem 0; font-size: 0.9rem; font-weight:600;">${item.zone}</td>
+                            <td style="padding: 0.75rem 0; font-size: 0.9rem; text-align: right;">${item.duration}s</td>
+                            <td style="padding: 0.75rem 0; font-size: 0.9rem; text-align: right; font-weight: 600;">₹ ${item.cost}</td>
+                        </tr>
+                    `;
+                });
+            } else {
+                html = `<tr><td colspan="4" style="text-align:center; padding:2rem; font-style:italic; color:#888;">No waste incidents recorded today!</td></tr>`;
             }
+            document.getElementById('bill-items').innerHTML = html;
+            
+            // Auto-trigger print
+            setTimeout(() => { window.print(); }, 800);
+        } catch (e) {
+            console.error("Failed to load bill", e);
+            document.getElementById('bill-items').innerHTML = `<tr><td colspan="4" style="text-align:center; padding:2rem; font-style:italic; color:red;">Error loading bill data.</td></tr>`;
         }
-    </style>
-</head>
-<body>
-    <div class="invoice">
-        <div class="invoice-header">
-            <div class="invoice-brand">
-                <h1>⚡ VisionCore</h1>
-                <p>Automated Energy Intelligence Report</p>
-            </div>
-            <div class="invoice-meta">
-                <div class="label">Invoice Date</div>
-                <div class="value">{{ bill_date }}</div>
-                <div class="label">Generated</div>
-                <div class="value" style="font-size: 0.85rem; opacity: 0.85;">{{ bill_date }} · Auto</div>
-            </div>
-        </div>
-
-        <div class="invoice-body">
-            <div class="invoice-info">
-                <div class="info-block">
-                    <div class="info-label">Monitored Location</div>
-                    <div class="info-value">{{ room }}</div>
-                </div>
-                <div class="info-block">
-                    <div class="info-label">Billing Period</div>
-                    <div class="info-value">{{ bill_date }} (24h)</div>
-                </div>
-                <div class="info-block">
-                    <div class="info-label">Total Incidents</div>
-                    <div class="info-value">{{ entries | length }}</div>
-                </div>
-                <div class="info-block">
-                    <div class="info-label">AI Engine</div>
-                    <div class="info-value">VisionCore v2.4</div>
-                </div>
-            </div>
-
-            {% if entries %}
-            <table class="line-items">
-                <thead>
-                    <tr>
-                        <th>Time</th>
-                        <th>Status</th>
-                        <th>Duration</th>
-                        <th>Cost (₹)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for e in entries %}
-                    <tr>
-                        <td style="font-weight: 700;">{{ e.Timestamp }}</td>
-                        <td><span class="status-chip alert">● {{ e.Status }}</span></td>
-                        <td>{{ e.Duration_Seconds }}s</td>
-                        <td>₹{{ e.Money_Wasted }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-
-            <div class="totals-section">
-                <div class="totals-box">
-                    <div class="totals-row">
-                        <span class="t-label">Total Duration</span>
-                        <span>{{ total_seconds }}s</span>
-                    </div>
-                    <div class="totals-row">
-                        <span class="t-label">Energy Consumed</span>
-                        <span>{{ total_kwh }} kWh</span>
-                    </div>
-                    <div class="totals-row grand">
-                        <span class="t-label">Amount Due</span>
-                        <span>₹{{ total_money }}</span>
-                    </div>
-                </div>
-            </div>
-            {% else %}
-            <div class="empty-state">
-                <div class="icon">✅</div>
-                <p>No energy waste incidents detected for {{ bill_date }}.</p>
-                <p style="margin-top: 0.25rem; font-size: 0.8rem;">Your facility ran at optimal efficiency.</p>
-            </div>
-            {% endif %}
-        </div>
-
-        <div class="invoice-footer">
-            This invoice was automatically generated by VisionCore Energy Intelligence.<br>
-            For discrepancies, review the full audit log at <strong>/history</strong>.
-        </div>
-    </div>
-
-    <div class="actions-bar">
-        <a href="/" class="btn-back">← Back to Dashboard</a>
-        <button class="btn-print" onclick="window.print()">📄 Download PDF / Print</button>
-    </div>
-
-    <script>
-        // Auto-trigger print dialog on page load
-        window.addEventListener('load', () => {
-            setTimeout(() => window.print(), 600);
-        });
-    </script>
-</body>
-</html>
+    }
+    loadBill();
+</script>
+{% endblock %}
