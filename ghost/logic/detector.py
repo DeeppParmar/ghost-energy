@@ -270,7 +270,7 @@ class RoomMonitor:
         print(f"[ALERT] Sending to: {receiver}")
 
         try:
-            if frame is not None:
+            if frame is not None and getattr(frame, 'size', 0) > 0:
                 # Send email with screenshot attachment
                 msg = MIMEMultipart()
                 msg['Subject'] = subject
@@ -636,7 +636,7 @@ class RoomMonitor:
         # Telegram
         try:
             from logic.telegram_notifier import send_alert_with_snapshot, send_message
-            if frame is not None:
+            if frame is not None and getattr(frame, 'size', 0) > 0:
                 send_alert_with_snapshot(
                     frame_bgr=frame, room=config.ROOM_NAME,
                     zone="ALL", duration=getattr(config, 'AUTO_OFF_DELAY_MINUTES', 10) * 60,
@@ -691,7 +691,7 @@ class RoomMonitor:
         # Telegram
         try:
             from logic.telegram_notifier import send_alert_with_snapshot, send_message
-            if frame is not None:
+            if frame is not None and getattr(frame, 'size', 0) > 0:
                 import cv2
                 ok, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
                 if ok:
@@ -711,7 +711,7 @@ class RoomMonitor:
                 subject = f"[STATUS LOG] {config.ROOM_NAME} — {status}"
                 body = text.replace('<b>', '').replace('</b>', '')
 
-                if frame is not None:
+                if frame is not None and getattr(frame, 'size', 0) > 0:
                     msg = MIMEMultipart()
                     msg['Subject'] = subject
                     msg['From'] = config.SENDER_EMAIL

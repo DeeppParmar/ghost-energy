@@ -67,6 +67,9 @@ def send_alert_with_snapshot(frame_bgr, room: str, zone: str, duration: float, m
         import cv2
         import numpy as np
 
+        if frame_bgr is None or getattr(frame_bgr, 'size', 0) == 0:
+            return False
+
         # Encode frame to JPEG bytes
         ok, buf = cv2.imencode(".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, 80])
         if not ok:
