@@ -748,7 +748,7 @@ class VisionHUD {
         try {
             const res = await fetch('/api/settings');
             const data = await res.json();
-            ['receiver-email', 'room-name', 'alert-delay', 'camera-source'].forEach(id => {
+            ['receiver-email', 'sender-email', 'sender-password', 'room-name', 'alert-delay', 'camera-source'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.value = data[id.replace('-', '_')] || '';
             });
@@ -777,13 +777,19 @@ class VisionHUD {
             camera_source: document.getElementById('camera-source').value
         };
 
-        // Include Telegram settings if the fields exist on the page
+            // Include Telegram settings if the fields exist on the page
         const tgEnabled = document.getElementById('telegram-enabled');
         const tgToken = document.getElementById('telegram-bot-token');
         const tgChatId = document.getElementById('telegram-chat-id');
         if (tgEnabled) payload.telegram_enabled = tgEnabled.checked;
         if (tgToken) payload.telegram_bot_token = tgToken.value;
         if (tgChatId) payload.telegram_chat_id = tgChatId.value;
+
+        // General Email Credentials
+        const senEl = document.getElementById('sender-email');
+        const senPassEl = document.getElementById('sender-password');
+        if (senEl) payload.sender_email = senEl.value;
+        if (senPassEl) payload.sender_password = senPassEl.value;
 
         // Smart Automation
         const autoOffDelay = document.getElementById('auto-off-delay');
@@ -810,13 +816,22 @@ class VisionHUD {
         const msgEl = document.getElementById('settings-msg');
         this.showStatusMsg(msgEl, '📧 Dispatching Test Relay...', 'var(--accent)');
         try {
+            const recEl = document.getElementById('receiver-email');
+            const senEl = document.getElementById('sender-email');
+            const senPassEl = document.getElementById('sender-password');
+            const body = {};
+            if (recEl) body.receiver_email = recEl.value;
+            if (senEl) body.sender_email = senEl.value;
+            if (senPassEl) body.sender_password = senPassEl.value;
+
             const res = await fetch('/api/test_email', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
             });
-            const data = await res.json();
-            this.showStatusMsg(msgEl, data.success ? '✅ Protocol Confirmed' : '❌ Relay Nullified');
-        } catch (e) { this.showStatusMsg(msgEl, '❌ Network Partition'); }
+            const d = await res.json();
+            this.showStatusMsg(msgEl, d.success ? '✅ Protocol Confirmed' : '❌ Relay Nullified. Check App Password.', d.success ? 'var(--success)' : 'var(--danger)');
+        } catch (e) { this.showStatusMsg(msgEl, '❌ Network Partition', 'var(--danger)'); }
     }
 
     async testTelegram() {

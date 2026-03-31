@@ -314,6 +314,10 @@ def load_settings():
                 saved = json.load(f)
             if 'receiver_email' in saved:
                 config.RECEIVER_EMAIL = saved['receiver_email']
+            if 'sender_email' in saved:
+                config.SENDER_EMAIL = saved['sender_email']
+            if 'sender_password' in saved:
+                config.SENDER_PASSWORD = saved['sender_password']
             if 'room_name' in saved:
                 config.ROOM_NAME = saved['room_name']
             if 'alert_delay' in saved:
@@ -351,6 +355,8 @@ def save_settings():
     """Save current config settings to JSON file."""
     data = {
         'receiver_email': config.RECEIVER_EMAIL,
+        'sender_email': getattr(config, 'SENDER_EMAIL', ''),
+        'sender_password': getattr(config, 'SENDER_PASSWORD', ''),
         'room_name': config.ROOM_NAME,
         'alert_delay': config.ALERT_DELAY_SECONDS,
         'camera_source': getattr(config, 'CAMERA_SOURCE', 0),
@@ -693,6 +699,8 @@ def get_settings():
     """Return current settings."""
     return jsonify({
         "receiver_email": config.RECEIVER_EMAIL,
+        "sender_email": getattr(config, "SENDER_EMAIL", ""),
+        "sender_password": getattr(config, "SENDER_PASSWORD", ""),
         "room_name": config.ROOM_NAME,
         "alert_delay": config.ALERT_DELAY_SECONDS,
         "camera_source": getattr(config, "CAMERA_SOURCE", 0),
@@ -713,8 +721,17 @@ def update_settings():
     if 'receiver_email' in data:
         email = data['receiver_email'].strip()
         if '@' not in email or '.' not in email:
-            return jsonify({"error": "Invalid email address"}), 400
+            return jsonify({"error": "Invalid receiver email address"}), 400
         config.RECEIVER_EMAIL = email
+
+    if 'sender_email' in data:
+        semail = data['sender_email'].strip()
+        if semail and ('@' not in semail or '.' not in semail):
+            return jsonify({"error": "Invalid sender email address"}), 400
+        config.SENDER_EMAIL = semail
+
+    if 'sender_password' in data:
+        config.SENDER_PASSWORD = data['sender_password'].strip()
 
     if 'room_name' in data:
         config.ROOM_NAME = data['room_name'].strip()
@@ -767,6 +784,7 @@ def update_settings():
         "success": True,
         "saved_to_disk": saved,
         "receiver_email": config.RECEIVER_EMAIL,
+        "sender_email": getattr(config, 'SENDER_EMAIL', ''),
         "room_name": config.ROOM_NAME,
         "alert_delay": config.ALERT_DELAY_SECONDS,
         "camera_source": getattr(config, "CAMERA_SOURCE", 0),
@@ -779,13 +797,30 @@ def update_settings():
 
 @app.route('/api/test_email', methods=['POST'])
 def test_email():
-    """Send a test email to verify the receiver address works."""
-    success, message = monitor.send_test_email()
-    return jsonify({
-        "success": success,
-        "message": message,
-        "receiver_email": config.RECEIVER_EMAIL
-    })
+    """Send a test email. Temporarily overrides config if credentials provided in body."""
+    data = request.get_json() or {}
+    old_sender = getattr(config, 'SENDER_EMAIL', '')
+    old_pass = getattr(config, 'SENDER_PASSWORD', '')
+    old_rec = getattr(config, 'RECEIVER_EMAIL', '')
+    
+    # Temporarily apply
+    if 'sender_email' in data and data['sender_email']:
+        config.SENDER_EMAIL = data['sender_email'].strip()
+    if 'sender_password' in data and data['sender_password']:
+        config.SENDER_PASSWORD = data['sender_password'].strip()
+    if 'receiver_email' in data and data['receiver_email']:
+        config.RECEIVER_EMAIL = data['receiver_email'].strip()
+
+    # Auto-save credentials if test button triggered
+    if data.get('sender_email') or data.get('sender_password'):
+        save_settings()
+
+    try:
+        success, message = monitor.send_test_email()
+    finally:
+        pass # Keep the new config if we decided to save it
+
+    return jsonify({"success": success, "message": message, "receiver_email": config.RECEIVER_EMAIL})
 
 
 @app.route('/api/test_telegram', methods=['POST'])

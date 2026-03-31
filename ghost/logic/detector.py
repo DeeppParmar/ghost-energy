@@ -126,6 +126,7 @@ class RoomMonitor:
 
         # ── Temporal smoothing for stable count ──
         self._count_history = deque(maxlen=10)
+        self._previous_person_count = 0
 
         # ── Overlay data (shared with stream thread) ──
         self._overlay_lock = threading.Lock()
@@ -245,7 +246,69 @@ class RoomMonitor:
 
         return self.light_status
 
-    # ── Email Alerting ────────────────────────────────────────────────
+    # ── Email & Telegram Alerting ──────────────────────────────────────
+
+    def _send_activity_notification(self, action_type, frame=None):
+        """Sends an instant alert when someone enters or leaves the room."""
+        subject = f"[VISIONCORE] {action_type}: {config.ROOM_NAME}"
+        timestamp = __import__('datetime').datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        if action_type == "Activity Appeared":
+            body = f"Human activity has been detected in {config.ROOM_NAME}."
+        else:
+            body = f"The area has been cleared in {config.ROOM_NAME}."
+            
+        body += f"\nTime: {timestamp}"
+        
+        # 1. Email Channel
+        receiver = getattr(config, 'RECEIVER_EMAIL', '')
+        sender = getattr(config, 'SENDER_EMAIL', '')
+        password = getattr(config, 'SENDER_PASSWORD', '')
+
+        if receiver and sender and password:
+            try:
+                from email.mime.multipart import MIMEMultipart
+                from email.mime.text import MIMEText
+                from email.mime.image import MIMEImage
+                import smtplib
+
+                msg = MIMEMultipart()
+                msg['Subject'] = subject
+                msg['From'] = sender
+                msg['To'] = receiver
+                msg.attach(MIMEText(body, 'plain'))
+
+                if frame is not None and getattr(frame, 'size', 0) > 0:
+                    import cv2
+                    ok, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    if ok:
+                        img_part = MIMEImage(buf.tobytes(), _subtype='jpeg')
+                        img_part.add_header('Content-Disposition', 'attachment', filename='snapshot.jpg')
+                        msg.attach(img_part)
+
+                server = smtplib.SMTP('smtp.gmail.com', 587)
+                server.starttls()
+                server.login(sender, password)
+                server.send_message(msg)
+                server.quit()
+                print(f"[ALERT] Instantly dispatched email: {action_type}")
+            except Exception as e:
+                print(f"[ALERT] Failed to send instant email: {e}")
+
+        # 2. Telegram Channel
+        try:
+            from logic.telegram_notifier import send_photo, send_message
+            if getattr(config, 'TELEGRAM_ENABLED', False):
+                tg_caption = f"🚨 <b>{subject}</b>\n{body.replace(chr(10), '<br>')}"
+                if frame is not None and getattr(frame, 'size', 0) > 0:
+                    import cv2
+                    ok, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    if ok:
+                        send_photo(buf.tobytes(), caption=tg_caption)
+                else:
+                    send_message(tg_caption)
+        except ImportError:
+            pass
 
     def trigger_alert(self, zone_name="default", frame=None):
         # CRITICAL: Copy frame before passing to background threads.
@@ -549,6 +612,19 @@ class RoomMonitor:
         current_time = time.time()
 
         self.person_count = len(valid_humans)
+
+        # ── Edge-Triggered Activity Notifications ──
+        if self._previous_person_count == 0 and self.person_count > 0:
+            print(f"[EDGE] Activity Detected: 0 -> {self.person_count}")
+            # Ensure frame copy to prevent OpenCV race condition
+            frame_c = frame.copy() if frame is not None else None
+            threading.Thread(target=lambda: self._send_activity_notification("Activity Appeared", frame_c), daemon=True).start()
+        elif self._previous_person_count > 0 and self.person_count == 0:
+            print(f"[EDGE] Area Cleared: {self._previous_person_count} -> 0")
+            frame_c = frame.copy() if frame is not None else None
+            threading.Thread(target=lambda: self._send_activity_notification("Area Cleared", frame_c), daemon=True).start()
+            
+        self._previous_person_count = self.person_count
 
         zone_counts = {zid: 0 for zid in self.zones_state.keys()}
         for human in valid_humans:
