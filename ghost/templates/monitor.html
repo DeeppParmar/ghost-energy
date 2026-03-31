@@ -13,6 +13,11 @@
             <span class="status-dot-active" style="display:inline-block; margin-right:6px;"></span> LIVE ENCODER
         </div>
         <a href="/settings" style="background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text); width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; text-decoration: none; font-size: 1.2rem; transition: 0.3s;" onmouseover="this.style.transform='rotate(45deg)'" onmouseout="this.style.transform='rotate(0deg)'">⚙</a>
+        <select id="stream-mode" style="background: rgba(255,255,255,0.06); border:1px solid var(--border); color:#fff; padding:8px 10px; border-radius:10px;">
+            <option value="normal">Standard</option>
+            <option value="thermal">Thermal</option>
+            <option value="trails">Ghost Trails</option>
+        </select>
     </div>
 </header>
 
@@ -137,6 +142,12 @@
         <div class="stat-value" id="ai-fps">--</div>
         <div class="stat-unit">FPS</div>
         <div class="stat-desc" id="hw-info">Detecting...</div>
+    </div>
+
+    <div class="bento-card">
+        <div class="stat-heading">Deep Work Session</div>
+        <div class="stat-value" id="focus-timer">00:00</div>
+        <div class="stat-desc">Continuous occupancy timer</div>
     </div>
 </div>
 {% endblock %}

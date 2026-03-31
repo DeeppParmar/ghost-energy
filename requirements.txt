@@ -1,0 +1,11 @@
+flask
+opencv-python
+numpy
+ultralytics
+torch
+fpdf2
+psutil
+sqlalchemy
+psycopg[binary]
+requests
+scikit-learn

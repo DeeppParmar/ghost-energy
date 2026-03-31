@@ -7,6 +7,12 @@ import csv
 import os
 from datetime import datetime, timedelta
 from fpdf import FPDF
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+try:
+    import db
+except Exception:
+    db = None
 
 # ── Constants ──
 REPORTS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'reports')
@@ -79,6 +85,12 @@ def _read_audit_entries(target_date=None):
         target_date = datetime.now().strftime('%Y-%m-%d')
 
     entries = []
+    if db is not None and getattr(db, "is_ready", lambda: False)():
+        rows = db.list_history(limit=200000)
+        for r in rows:
+            if (r.get("Timestamp") or "").startswith(target_date):
+                entries.append(r)
+        return entries
     if not os.path.exists(AUDIT_CSV):
         return entries
 

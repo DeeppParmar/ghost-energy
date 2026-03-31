@@ -10,12 +10,17 @@ import smtplib
 from email.mime.text import MIMEText
 import torch
 from collections import deque
+import requests
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
     import config
 except ImportError:
     from .. import config
+try:
+    import db
+except ImportError:
+    from .. import db
 
 
 def _compute_iou(boxA, boxB):
@@ -216,6 +221,7 @@ class RoomMonitor:
         if not self.alert_sent:
             self.alert_sent = True
             threading.Thread(target=self._send_email_alert, daemon=True).start()
+            threading.Thread(target=self._send_telegram_alert, daemon=True).start()
 
     def _send_email_alert(self):
         receiver = config.RECEIVER_EMAIL
@@ -260,23 +266,77 @@ class RoomMonitor:
             print(f"[ERROR] Test email failed: {e}")
             return False, str(e)
 
-    def log_energy_waste(self, duration):
+    def _send_telegram_alert(self):
+        if not getattr(config, "TELEGRAM_ENABLED", False):
+            return
+        token = getattr(config, "TELEGRAM_BOT_TOKEN", "")
+        chat_id = getattr(config, "TELEGRAM_CHAT_ID", "")
+        if not token or not chat_id:
+            return
+        text = (
+            f"ENERGY ALERT\n"
+            f"Room: {config.ROOM_NAME}\n"
+            f"No human detected with lights ON."
+        )
+        snapshot_path = getattr(self, "_latest_snapshot_path", None)
+        try:
+            if snapshot_path and os.path.exists(snapshot_path):
+                url = f"https://api.telegram.org/bot{token}/sendPhoto"
+                with open(snapshot_path, "rb") as img_f:
+                    requests.post(
+                        url,
+                        data={"chat_id": chat_id, "caption": text},
+                        files={"photo": img_f},
+                        timeout=12,
+                    )
+            else:
+                url = f"https://api.telegram.org/bot{token}/sendMessage"
+                requests.post(url, data={"chat_id": chat_id, "text": text}, timeout=10)
+        except Exception as e:
+            print(f"[TELEGRAM] Failed: {e}")
+
+    def log_energy_waste(self, duration, frame=None):
         # Write to the canonical reports folder (stable across different working dirs).
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # ghost/
         reports_dir = os.path.join(base_dir, 'reports')
+        evidence_dir = os.path.join(base_dir, 'evidence')
         os.makedirs(reports_dir, exist_ok=True)
+        os.makedirs(evidence_dir, exist_ok=True)
         file_path = os.path.join(reports_dir, 'energy_audit.csv')
 
         # Cost = (duration hours) × (wattage kW) × (rate INR/kWh)
         money_wasted = (duration / 3600.0) * (config.BULB_WATTAGE / 1000.0) * config.ELECTRICITY_RATE
         money_wasted = round(money_wasted, 2)
+        event_ts = datetime.now()
+        snapshot_path = None
+        if frame is not None:
+            try:
+                snapshot_name = f"waste_{event_ts.strftime('%Y%m%d_%H%M%S')}.jpg"
+                snapshot_path = os.path.join(evidence_dir, snapshot_name)
+                cv2.imwrite(snapshot_path, frame)
+                self._latest_snapshot_path = snapshot_path
+            except Exception:
+                snapshot_path = None
+
+        # DB first (Supabase/SQLite)
+        db_ok = db.add_waste_event(
+            timestamp=event_ts,
+            room=config.ROOM_NAME,
+            duration_seconds=round(duration, 2),
+            status="ALERT_SENT",
+            money_wasted=money_wasted,
+            snapshot_path=snapshot_path,
+            zone_name="default",
+        )
+        if db_ok:
+            return
 
         with open(file_path, mode='a', newline='') as f:
             import csv
             writer = csv.writer(f)
             if f.tell() == 0:
                 writer.writerow(['Timestamp', 'Room', 'Duration_Seconds', 'Status', 'Money_Wasted'])
-            writer.writerow([datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            writer.writerow([event_ts.strftime('%Y-%m-%d %H:%M:%S'),
                              config.ROOM_NAME,
                              round(duration, 2),
                              'ALERT_SENT',
@@ -422,7 +482,7 @@ class RoomMonitor:
                 self.is_energy_wasted = True
                 if not self.alert_sent:
                     self.trigger_alert()
-                    self.log_energy_waste(empty_duration)
+                    self.log_energy_waste(empty_duration, frame=frame)
             else:
                 # If it is Dark or Natural or just started being empty, no waste.
                 self.is_energy_wasted = False

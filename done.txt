@@ -33,3 +33,14 @@ VisionCore polishing summary
   - This guarantees you can confirm the AI is computing luminance even if the frontend HUD fails to update.
   - Added `/status` debug telemetry (`light_debug`) so you can verify the exact brightness value, threshold, and window-based decision inputs without guessing.
 
+- Major feature expansion (database + alerts + intelligence)
+  - Added SQLAlchemy storage layer (`ghost/db.py`) with Supabase URL support via `SUPABASE_DB_URL`, plus local SQLite fallback.
+  - Wired waste event logging to DB first (with CSV fallback), including snapshot path persistence for evidence.
+  - Added Telegram alert support with snapshot photo sending (token/chat ID loaded from environment variables only).
+  - Added focus/deep-work timer in `/status` and monitor UI card (`focus_seconds`, milestones).
+  - Added new APIs/routes: `/api/evidence`, `/evidence_file/<name>`, `/api/projection`, `/api/leaderboard`, `/bill`, `/api/zones`.
+  - Added printable bill page (`ghost/templates/bill.html`) with browser print/PDF workflow.
+  - Added thermal and ghost-trail stream routes: `/video_feed_thermal`, `/video_feed_trails` and monitor stream mode switcher.
+  - Added evidence vault grid in History and projection/leaderboard cards on Home.
+  - Added `requirements.txt` covering DB/ML/Telegram dependencies.
+

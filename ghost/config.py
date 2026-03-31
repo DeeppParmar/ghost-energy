@@ -1,3 +1,5 @@
+import os
+
 # config.py - Monitoring Settings
 
 ROOM_NAME = "Advanced Physics Lab"
@@ -27,6 +29,16 @@ PERSON_ACCEPT_CONF_MIN = 0.45         # accept tracker person without verifier i
 VERIFIER_IOU_MIN = 0.25               # IoU threshold to merge tracker + verifier boxes
 
 # --- EMAIL ALERT SYSTEM (Safe & Secure) ---
-SENDER_EMAIL = "vaish4894@gmail.com"
-SENDER_PASSWORD = "ezpi yboc kqbt hmug" 
-RECEIVER_EMAIL = "vmaingade21@gmail.com"
+SENDER_EMAIL = os.getenv("VISIONCORE_SENDER_EMAIL", "")
+SENDER_PASSWORD = os.getenv("VISIONCORE_SENDER_PASSWORD", "")
+RECEIVER_EMAIL = os.getenv("VISIONCORE_RECEIVER_EMAIL", "")
+
+# --- TELEGRAM ALERTS ---
+TELEGRAM_ENABLED = os.getenv("VISIONCORE_TELEGRAM_ENABLED", "1") == "1"
+TELEGRAM_BOT_TOKEN = os.getenv("VISIONCORE_TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("VISIONCORE_TELEGRAM_CHAT_ID", "")
+
+# --- DATABASE ---
+# Prefer Supabase Postgres URL. Example:
+# postgresql+psycopg://user:pass@host:5432/postgres
+SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL", "")

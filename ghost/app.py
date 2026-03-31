@@ -9,9 +9,12 @@ from datetime import datetime, timedelta
 import config
 from logic.detector import RoomMonitor
 from logic.report_generator import generate_daily_report
+import db
 
 app = Flask(__name__)
 monitor = RoomMonitor()
+db.init_db()
+db.import_csv_to_db_once()
 
 # ── Reduce OpenCV backend log spam (Windows) ──
 try:
@@ -50,6 +53,9 @@ _savings_date = datetime.now().strftime('%Y-%m-%d')  # reset tracker at midnight
 from collections import deque
 _occupancy_history = deque(maxlen=600)
 _occupancy_timestamps = deque(maxlen=600)
+_focus_lock = threading.Lock()
+_focus_start_ts = None
+_focus_seconds = 0
 
 # ── Optional system telemetry ──
 try:
@@ -58,54 +64,6 @@ try:
 except ImportError:
     _HAS_PSUTIL = False
 
-def migrate_csv_schema():
-    """
-    One-time migration: ensure `reports/energy_audit.csv` includes Money_Wasted.
-    Idempotent: if column already exists, does nothing.
-    """
-    import csv
-
-    log_file = os.path.join(os.path.dirname(__file__), 'reports', 'energy_audit.csv')
-    if not os.path.exists(log_file):
-        return
-
-    try:
-        with open(log_file, 'r', newline='') as f:
-            reader = csv.reader(f)
-            header = next(reader, None)
-
-        if not header or 'Money_Wasted' in header:
-            return
-
-        # Re-read as dicts using the existing header.
-        rows = []
-        with open(log_file, 'r', newline='') as f:
-            dict_reader = csv.DictReader(f)
-            for row in dict_reader:
-                dur = float(row.get('Duration_Seconds', 0) or 0)
-                money_wasted = (dur / 3600.0) * (_BULB_WATTAGE / 1000.0) * _ELECTRICITY_RATE
-                row['Money_Wasted'] = round(money_wasted, 2)
-                rows.append(row)
-
-        # Rewrite with canonical schema.
-        fieldnames = ['Timestamp', 'Room', 'Duration_Seconds', 'Status', 'Money_Wasted']
-        with open(log_file, 'w', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fieldnames)
-            writer.writeheader()
-            for row in rows:
-                writer.writerow({
-                    'Timestamp': row.get('Timestamp', ''),
-                    'Room': row.get('Room', ''),
-                    'Duration_Seconds': row.get('Duration_Seconds', 0),
-                    'Status': row.get('Status', ''),
-                    'Money_Wasted': row.get('Money_Wasted', 0)
-                })
-    except Exception as e:
-        print(f"[MIGRATION] Failed: {e}")
-
-
-# Migrate CSV schema before any threads start (so UI & exports are consistent).
-migrate_csv_schema()
 
 def _looks_like_valid_camera_frame(frame):
     """Reject clearly broken/corrupt frames (e.g. flat orange virtual-camera feed)."""
@@ -237,6 +195,7 @@ def _ai_thread():
     The AI processes frames as fast as it can. The overlay data is stored
     in monitor._overlay_* and drawn by the stream thread independently."""
     global _total_detections
+    global _focus_start_ts, _focus_seconds
     while True:
         with _camera_lock:
             frame = _latest_frame.copy() if _latest_frame is not None else None
@@ -248,6 +207,14 @@ def _ai_thread():
         monitor.process_frame(frame)
         if monitor.person_count > 0:
             _total_detections += 1
+            with _focus_lock:
+                if _focus_start_ts is None:
+                    _focus_start_ts = time.time()
+                _focus_seconds = int(time.time() - _focus_start_ts)
+        else:
+            with _focus_lock:
+                _focus_start_ts = None
+                _focus_seconds = 0
 
         # ── Record occupancy sample ──
         now = time.time()
@@ -406,6 +373,53 @@ def generate_frames():
         time.sleep(_FRAME_INTERVAL)
 
 
+def _apply_thermal(frame):
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    return cv2.applyColorMap(gray, cv2.COLORMAP_INFERNO)
+
+
+_trail_prev_gray = None
+_trail_canvas = None
+
+
+def _apply_ghost_trails(frame):
+    global _trail_prev_gray, _trail_canvas
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    if _trail_prev_gray is None or _trail_canvas is None:
+        _trail_prev_gray = gray
+        _trail_canvas = np.zeros_like(frame)
+        return frame
+    diff = cv2.absdiff(gray, _trail_prev_gray)
+    _, motion = cv2.threshold(diff, 20, 255, cv2.THRESH_BINARY)
+    motion_col = cv2.cvtColor(motion, cv2.COLOR_GRAY2BGR)
+    motion_col[:, :, 2] = 0
+    _trail_canvas = cv2.addWeighted(_trail_canvas, 0.9, motion_col, 0.5, 0)
+    out = cv2.addWeighted(frame, 0.85, _trail_canvas, 0.5, 0)
+    _trail_prev_gray = gray
+    return out
+
+
+def generate_frames_mode(mode="normal"):
+    while True:
+        with _camera_lock:
+            frame = _latest_frame.copy() if _latest_frame is not None else None
+        if frame is None:
+            time.sleep(_FRAME_INTERVAL)
+            continue
+        display = monitor.draw_overlay(frame)
+        if mode == "thermal":
+            display = _apply_thermal(display)
+        elif mode == "trails":
+            display = _apply_ghost_trails(display)
+        ret, buffer = cv2.imencode('.jpg', display, [cv2.IMWRITE_JPEG_QUALITY, 75])
+        if not ret:
+            time.sleep(_FRAME_INTERVAL)
+            continue
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+        time.sleep(_FRAME_INTERVAL)
+
+
 # ── Page Routes ──
 
 @app.route('/')
@@ -437,10 +451,27 @@ def video_feed():
     return Response(generate_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
+@app.route('/video_feed_thermal')
+def video_feed_thermal():
+    return Response(generate_frames_mode("thermal"), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+@app.route('/video_feed_trails')
+def video_feed_trails():
+    return Response(generate_frames_mode("trails"), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
 # ── API Routes ──
 
 @app.route('/status')
 def status():
+    with _focus_lock:
+        focus_seconds = int(_focus_seconds)
+    milestones = {
+        "1m": focus_seconds >= 60,
+        "5m": focus_seconds >= 300,
+        "30m": focus_seconds >= 1800,
+    }
     return jsonify({
         "person_count": monitor.person_count,
         "light_status": monitor.light_status,
@@ -452,7 +483,9 @@ def status():
         "time_since_presence": int(time.time() - monitor.last_seen_time),
         "ai_fps": monitor._ai_fps,
         "detection_confidence": getattr(monitor, "detection_confidence", None),
-        "verifier_active": getattr(getattr(monitor, "_verifier_thread", None), "is_alive", lambda: False)()
+        "verifier_active": getattr(getattr(monitor, "_verifier_thread", None), "is_alive", lambda: False)(),
+        "focus_seconds": focus_seconds,
+        "focus_milestones": milestones,
     })
 
 @app.route('/health')
@@ -577,6 +610,10 @@ def test_email():
 @app.route('/api/history')
 def history():
     """Return energy audit log entries."""
+    if db.is_ready():
+        entries = db.list_history(limit=50)
+        return jsonify({"entries": entries, "total": len(entries)})
+
     log_file = os.path.join(os.path.dirname(__file__), 'reports', 'energy_audit.csv')
     entries = []
     if os.path.exists(log_file):
@@ -619,7 +656,21 @@ def export_csv():
     # Read CSV (if missing, return header only).
     fieldnames = ['Timestamp', 'Room', 'Duration_Seconds', 'Status', 'Money_Wasted']
     rows = []
-    if os.path.exists(log_file):
+    if db.is_ready():
+        entries = db.list_history(limit=100000)
+        for row in entries:
+            ts = (row.get('Timestamp') or '').strip()
+            try:
+                dt = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
+            except Exception:
+                continue
+            row_date = dt.date()
+            if from_date and row_date < from_date:
+                continue
+            if to_date and row_date > to_date:
+                continue
+            rows.append(row)
+    elif os.path.exists(log_file):
         try:
             with open(log_file, 'r', newline='') as f:
                 reader = csv.DictReader(f)
@@ -674,14 +725,6 @@ def heatmap_data():
     Optional query:
         ?date=YYYY-MM-DD  -> restrict aggregation to a single calendar date.
     """
-    import csv
-    from collections import defaultdict
-
-    log_file = os.path.join(os.path.dirname(__file__), 'reports', 'energy_audit.csv')
-
-    cell_totals = defaultdict(float)  # (weekday, hour) -> seconds
-    max_seconds = 0.0
-
     target_date_str = request.args.get('date', '').strip()
     target_date = None
     if target_date_str:
@@ -690,6 +733,16 @@ def heatmap_data():
         except Exception:
             target_date = None
 
+    if db.is_ready():
+        return jsonify(db.heatmap_cells(target_date=target_date))
+
+    import csv
+    from collections import defaultdict
+
+    log_file = os.path.join(os.path.dirname(__file__), 'reports', 'energy_audit.csv')
+
+    cell_totals = defaultdict(float)  # (weekday, hour) -> seconds
+    max_seconds = 0.0
     if os.path.exists(log_file):
         try:
             with open(log_file, 'r', newline='') as f:
@@ -727,10 +780,6 @@ def heatmap_data():
 @app.route('/api/monthly_summary')
 def monthly_summary():
     """Return aggregated energy-waste cost summary for the current calendar month."""
-    import csv
-
-    log_file = os.path.join(os.path.dirname(__file__), 'reports', 'energy_audit.csv')
-
     now = datetime.now()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     days_elapsed = max(1, (now.date() - month_start.date()).days + 1)
@@ -739,38 +788,55 @@ def monthly_summary():
     total_waste_seconds = 0.0
     total_money_wasted_inr = 0.0
 
-    if os.path.exists(log_file):
-        try:
-            with open(log_file, 'r', newline='') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if (row.get('Status') or '').strip() != 'ALERT_SENT':
-                        continue
+    if db.is_ready():
+        entries = db.list_history(limit=200000)
+        for row in entries:
+            if (row.get('Status') or '').strip() != 'ALERT_SENT':
+                continue
+            ts = (row.get('Timestamp') or '').strip()
+            try:
+                dt = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
+            except Exception:
+                continue
+            if dt < month_start or dt.date() > now.date() or dt.month != now.month or dt.year != now.year:
+                continue
+            dur = float(row.get('Duration_Seconds', 0) or 0)
+            total_alerts += 1
+            total_waste_seconds += dur
+            total_money_wasted_inr += float(row.get('Money_Wasted', 0) or 0)
+    else:
+        import csv
+        log_file = os.path.join(os.path.dirname(__file__), 'reports', 'energy_audit.csv')
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, 'r', newline='') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        if (row.get('Status') or '').strip() != 'ALERT_SENT':
+                            continue
 
-                    ts = (row.get('Timestamp') or '').strip()
-                    try:
-                        dt = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
-                    except Exception:
-                        continue
+                        ts = (row.get('Timestamp') or '').strip()
+                        try:
+                            dt = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
+                        except Exception:
+                            continue
 
-                    # Filter to current month only
-                    if dt < month_start or dt.date() > now.date() or dt.month != now.month or dt.year != now.year:
-                        # The dt.month/year check is redundant with date comparisons, but kept for clarity.
-                        continue
+                        # Filter to current month only
+                        if dt < month_start or dt.date() > now.date() or dt.month != now.month or dt.year != now.year:
+                            continue
 
-                    dur = float(row.get('Duration_Seconds', 0) or 0)
-                    total_alerts += 1
-                    total_waste_seconds += dur
-
-                    money_val = row.get('Money_Wasted', None)
-                    try:
-                        money_float = float(money_val)
-                        total_money_wasted_inr += money_float
-                    except Exception:
-                        money_wasted = (dur / 3600.0) * (_BULB_WATTAGE / 1000.0) * _ELECTRICITY_RATE
-                        total_money_wasted_inr += money_wasted
-        except Exception:
-            pass
+                        dur = float(row.get('Duration_Seconds', 0) or 0)
+                        total_alerts += 1
+                        total_waste_seconds += dur
+                        money_val = row.get('Money_Wasted', None)
+                        try:
+                            money_float = float(money_val)
+                            total_money_wasted_inr += money_float
+                        except Exception:
+                            money_wasted = (dur / 3600.0) * (_BULB_WATTAGE / 1000.0) * _ELECTRICITY_RATE
+                            total_money_wasted_inr += money_wasted
+            except Exception:
+                pass
 
     total_waste_hours = total_waste_seconds / 3600.0
     avg_daily_waste_minutes = (total_waste_seconds / max(1, float(days_elapsed))) / 60.0
@@ -819,23 +885,31 @@ def stats():
 @app.route('/api/energy_savings')
 def energy_savings():
     """Return historical energy savings data from audit CSV."""
-    import csv
     from collections import defaultdict
 
-    log_file = os.path.join(os.path.dirname(__file__), 'reports', 'energy_audit.csv')
     daily_waste = defaultdict(float)  # date → total waste seconds
 
-    if os.path.exists(log_file):
-        try:
-            with open(log_file, 'r') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    ts = row.get('Timestamp', '')
-                    dur = float(row.get('Duration_Seconds', 0))
-                    day = ts[:10] if len(ts) >= 10 else 'Unknown'
-                    daily_waste[day] += dur
-        except Exception:
-            pass
+    if db.is_ready():
+        entries = db.list_history(limit=200000)
+        for row in entries:
+            ts = row.get('Timestamp', '')
+            dur = float(row.get('Duration_Seconds', 0) or 0)
+            day = ts[:10] if len(ts) >= 10 else 'Unknown'
+            daily_waste[day] += dur
+    else:
+        import csv
+        log_file = os.path.join(os.path.dirname(__file__), 'reports', 'energy_audit.csv')
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, 'r') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        ts = row.get('Timestamp', '')
+                        dur = float(row.get('Duration_Seconds', 0))
+                        day = ts[:10] if len(ts) >= 10 else 'Unknown'
+                        daily_waste[day] += dur
+            except Exception:
+                pass
 
     # Last 7 days
     labels = []
@@ -855,27 +929,37 @@ def energy_savings():
 @app.route('/api/history_stats')
 def history_stats():
     """Return aggregated statistics for the History Dashboard."""
-    import csv
     from collections import defaultdict
-    log_file = os.path.join(os.path.dirname(__file__), 'reports', 'energy_audit.csv')
     
     total_seconds = 0.0
     incident_count = 0
     daily_totals = defaultdict(float)
     
-    if os.path.exists(log_file):
-        try:
-            with open(log_file, 'r') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    dur = float(row.get('Duration_Seconds', 0))
-                    total_seconds += dur
-                    incident_count += 1
-                    ts = row.get('Timestamp', '')
-                    day = ts[:10] if len(ts) >= 10 else 'Unknown'
-                    daily_totals[day] += dur
-        except Exception:
-            pass
+    if db.is_ready():
+        entries = db.list_history(limit=200000)
+        for row in entries:
+            dur = float(row.get('Duration_Seconds', 0) or 0)
+            total_seconds += dur
+            incident_count += 1
+            ts = row.get('Timestamp', '')
+            day = ts[:10] if len(ts) >= 10 else 'Unknown'
+            daily_totals[day] += dur
+    else:
+        import csv
+        log_file = os.path.join(os.path.dirname(__file__), 'reports', 'energy_audit.csv')
+        if os.path.exists(log_file):
+            try:
+                with open(log_file, 'r') as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        dur = float(row.get('Duration_Seconds', 0))
+                        total_seconds += dur
+                        incident_count += 1
+                        ts = row.get('Timestamp', '')
+                        day = ts[:10] if len(ts) >= 10 else 'Unknown'
+                        daily_totals[day] += dur
+            except Exception:
+                pass
             
     total_hours = total_seconds / 3600
     kwh_wasted = total_hours * (_BULB_WATTAGE / 1000)
@@ -1013,6 +1097,101 @@ def list_reports():
                         os.path.getmtime(fpath)).strftime('%Y-%m-%d %H:%M')
                 })
     return jsonify({"reports": reports})
+
+
+@app.route('/api/evidence')
+def evidence():
+    items = db.list_evidence(limit=80) if db.is_ready() else []
+    for i in items:
+        p = i.get("snapshot_path")
+        if p:
+            i["snapshot_url"] = f"/evidence_file/{os.path.basename(p)}"
+    return jsonify({"items": items})
+
+
+@app.route('/evidence_file/<filename>')
+def evidence_file(filename):
+    evidence_dir = os.path.join(os.path.dirname(__file__), 'evidence')
+    path = os.path.join(evidence_dir, filename)
+    if not os.path.exists(path):
+        return jsonify({"error": "Not found"}), 404
+    return send_file(path)
+
+
+@app.route('/api/projection')
+def projection():
+    rows = db.list_history(limit=200000) if db.is_ready() else []
+    by_day = {}
+    for r in rows:
+        d = (r.get("Timestamp") or "")[:10]
+        by_day[d] = by_day.get(d, 0.0) + float(r.get("Duration_Seconds", 0) or 0)
+    dates = sorted(by_day.keys())[-7:]
+    y = [by_day[d] / 3600.0 for d in dates]
+    pred = 0.0
+    if len(y) >= 2:
+        try:
+            from sklearn.linear_model import LinearRegression
+            import numpy as _np
+            X = _np.array(list(range(len(y)))).reshape(-1, 1)
+            model = LinearRegression().fit(X, _np.array(y))
+            pred = max(0.0, float(model.predict(_np.array([[len(y)]]))[0]))
+        except Exception:
+            pred = sum(y) / len(y)
+    elif len(y) == 1:
+        pred = y[0]
+    money = pred * (_BULB_WATTAGE / 1000.0) * _ELECTRICITY_RATE
+    return jsonify({
+        "predicted_waste_hours": round(pred, 2),
+        "predicted_money_wasted": round(money, 2),
+        "training_days": len(y),
+    })
+
+
+@app.route('/api/leaderboard')
+def leaderboard():
+    rows = db.list_history(limit=200000) if db.is_ready() else []
+    today = datetime.now().strftime('%Y-%m-%d')
+    my_waste_seconds = 0.0
+    for r in rows:
+        ts = r.get("Timestamp", "")
+        if ts.startswith(today):
+            my_waste_seconds += float(r.get("Duration_Seconds", 0) or 0)
+    my_hours = my_waste_seconds / 3600.0
+    seed = int(datetime.now().strftime("%Y%m%d"))
+    competitors = [
+        {"name": "EcoLabs-A", "waste_hours": max(0.0, my_hours * (0.8 + (seed % 7) * 0.03))},
+        {"name": "GreenNode-B", "waste_hours": max(0.0, my_hours * (1.0 + (seed % 5) * 0.02))},
+        {"name": "SmartGrid-C", "waste_hours": max(0.0, my_hours * (0.9 + (seed % 9) * 0.015))},
+    ]
+    scores = [{"name": "You", "waste_hours": my_hours}] + competitors
+    for s in scores:
+        s["eco_score"] = max(0, round(100 - s["waste_hours"] * 20))
+    scores.sort(key=lambda x: x["waste_hours"])
+    rank = next((i + 1 for i, s in enumerate(scores) if s["name"] == "You"), len(scores))
+    return jsonify({"rank": rank, "total": len(scores), "scores": scores})
+
+
+@app.route('/bill')
+def bill():
+    target = request.args.get("date", datetime.now().strftime('%Y-%m-%d'))
+    rows = db.list_history(limit=200000) if db.is_ready() else []
+    entries = [r for r in rows if (r.get("Timestamp") or "").startswith(target)]
+    total_seconds = sum(float(r.get("Duration_Seconds", 0) or 0) for r in entries)
+    total_money = sum(float(r.get("Money_Wasted", 0) or 0) for r in entries)
+    return render_template(
+        "bill.html",
+        bill_date=target,
+        room=config.ROOM_NAME,
+        entries=entries,
+        total_seconds=round(total_seconds, 2),
+        total_money=round(total_money, 2),
+        total_kwh=round((total_seconds / 3600.0) * (_BULB_WATTAGE / 1000.0), 3),
+    )
+
+
+@app.route('/api/zones')
+def zones():
+    return jsonify({"zones": [{"id": "default", "name": "Default Zone"}]})
 
 
 if __name__ == '__main__':

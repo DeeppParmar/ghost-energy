@@ -57,6 +57,17 @@ class VisionHUD {
         if (heatmapRefreshBtn) {
             heatmapRefreshBtn.onclick = () => this.renderHeatmap();
         }
+
+        const streamModeEl = document.getElementById('stream-mode');
+        const videoFeedEl = document.getElementById('video-feed');
+        if (streamModeEl && videoFeedEl) {
+            streamModeEl.onchange = () => {
+                const m = streamModeEl.value;
+                if (m === 'thermal') videoFeedEl.src = '/video_feed_thermal';
+                else if (m === 'trails') videoFeedEl.src = '/video_feed_trails';
+                else videoFeedEl.src = '/video_feed';
+            };
+        }
     }
 
     startPolling() {
@@ -106,6 +117,10 @@ class VisionHUD {
         if (document.getElementById('monthly-total-alerts')) {
             setInterval(() => this.loadMonthlySummary(), 60000);
             this.loadMonthlySummary();
+            setInterval(() => this.loadProjection(), 60000);
+            this.loadProjection();
+            setInterval(() => this.loadLeaderboard(), 60000);
+            this.loadLeaderboard();
         }
     }
 
@@ -247,6 +262,14 @@ class VisionHUD {
                     const secs = idle % 60;
                     timeSinceEl.textContent = mins > 0 ? `Empty for ${mins}m ${secs}s` : `Empty for ${secs}s`;
                 }
+            }
+
+            const focusEl = document.getElementById('focus-timer');
+            if (focusEl) {
+                const sec = Number(data.focus_seconds || 0);
+                const m = Math.floor(sec / 60);
+                const s = sec % 60;
+                focusEl.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
             }
 
             // Energy Alert Banner
@@ -641,6 +664,28 @@ class VisionHUD {
         } catch (e) {
             console.error('Monthly summary load failed:', e);
         }
+    }
+
+    async loadProjection() {
+        try {
+            const res = await fetch('/api/projection');
+            const d = await res.json();
+            const h = document.getElementById('projection-hours');
+            const m = document.getElementById('projection-money');
+            if (h) h.textContent = `${Number(d.predicted_waste_hours || 0).toFixed(2)} hrs`;
+            if (m) m.textContent = `₹${Number(d.predicted_money_wasted || 0).toFixed(2)} (tomorrow)`;
+        } catch (e) {}
+    }
+
+    async loadLeaderboard() {
+        try {
+            const res = await fetch('/api/leaderboard');
+            const d = await res.json();
+            const r = document.getElementById('leader-rank');
+            const desc = document.getElementById('leader-desc');
+            if (r) r.textContent = `${d.rank}/${d.total}`;
+            if (desc) desc.textContent = `Eco score rank today`;
+        } catch (e) {}
     }
 
     async loadSettings() {
