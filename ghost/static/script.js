@@ -288,12 +288,22 @@ class VisionHUD {
                 if (ms30) ms30.classList.toggle('unlocked', !!data.focus_milestones['30m']);
             }
 
-            // Energy Alert Banner
+            // Energy Alert & Auto-Off Banner
             const alertBanner = document.getElementById('energy-alert');
             if (alertBanner) {
-                // Only show the global waste banner when nobody is in frame at all.
-                // Prevents false alarms when person is in one zone but another zone is empty.
-                alertBanner.style.display = (data.is_energy_wasted && data.person_count === 0) ? 'block' : 'none';
+                if (data.auto_off_active) {
+                    alertBanner.style.display = 'block';
+                    alertBanner.style.background = 'var(--danger)';
+                    alertBanner.style.color = '#fff';
+                    alertBanner.innerHTML = '⚠️ CRITICAL: SYSTEM AUTO-POWERED DOWN DUE TO INACTIVITY';
+                } else if (data.is_energy_wasted && data.person_count === 0) {
+                    alertBanner.style.display = 'block';
+                    alertBanner.style.background = '';
+                    alertBanner.style.color = '';
+                    alertBanner.innerHTML = '⚠️ CRITICAL: ENERGY WASTE DETECTED IN VACANT SECTOR';
+                } else {
+                    alertBanner.style.display = 'none';
+                }
             }
 
             // Toast: Only when we enter a waste state (not on every idle poll).
@@ -745,6 +755,12 @@ class VisionHUD {
             if (tgEnabled) tgEnabled.checked = !!data.telegram_enabled;
             if (tgToken) tgToken.value = data.telegram_bot_token || '';
             if (tgChatId) tgChatId.value = data.telegram_chat_id || '';
+            
+            // Smart Automation
+            const autoOffDelay = document.getElementById('auto-off-delay');
+            const logFreq = document.getElementById('log-frequency');
+            if (autoOffDelay) autoOffDelay.value = data.auto_off_delay_minutes || 0;
+            if (logFreq) logFreq.value = data.log_frequency_minutes || 0;
         } catch (e) {}
     }
 
@@ -764,6 +780,12 @@ class VisionHUD {
         if (tgEnabled) payload.telegram_enabled = tgEnabled.checked;
         if (tgToken) payload.telegram_bot_token = tgToken.value;
         if (tgChatId) payload.telegram_chat_id = tgChatId.value;
+
+        // Smart Automation
+        const autoOffDelay = document.getElementById('auto-off-delay');
+        const logFreq = document.getElementById('log-frequency');
+        if (autoOffDelay) payload.auto_off_delay_minutes = parseInt(autoOffDelay.value) || 0;
+        if (logFreq) payload.log_frequency_minutes = parseInt(logFreq.value) || 0;
 
         try {
             const res = await fetch('/api/settings', {
@@ -800,12 +822,14 @@ class VisionHUD {
             msgEl.textContent = '📲 Sending test message...';
         }
         try {
-            // Send current form values so backend can test without requiring a save first
+            // Send current form values — backend will auto-save them
             const tokenEl = document.getElementById('telegram-bot-token');
             const chatEl = document.getElementById('telegram-chat-id');
+            const enabledEl = document.getElementById('telegram-enabled');
             const body = {};
             if (tokenEl) body.telegram_bot_token = tokenEl.value;
             if (chatEl) body.telegram_chat_id = chatEl.value;
+            if (enabledEl) body.telegram_enabled = enabledEl.checked;
 
             const res = await fetch('/api/test_telegram', {
                 method: 'POST',

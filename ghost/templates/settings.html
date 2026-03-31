@@ -65,6 +65,36 @@
                 <div id="telegram-msg" style="margin-top:1rem; font-size:0.9rem; font-weight:600;"></div>
             </div>
 
+            <!-- ═══ Smart Automation ═══ -->
+            <div style="border-top: 1px solid var(--border); padding-top: 2rem; margin-top: 2rem;">
+                <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px;
+                            color: var(--text-dim); font-weight: 800; margin-bottom: 1.5rem;">
+                    🤖 Smart Automation (Auto-Off & Logging)
+                </div>
+
+                <div class="setting-group" style="margin-bottom: 1.25rem;">
+                    <label>Auto-Off Delay (Minutes)</label>
+                    <p style="font-size: 0.75rem; color: var(--text-dim); margin-top: -0.25rem; margin-bottom: 0.5rem;">
+                        Trigger a power-down alert if room is empty for this long. (0 to disable)
+                    </p>
+                    <input type="number" id="auto-off-delay" placeholder="10">
+                </div>
+
+                <div class="setting-group" style="margin-bottom: 2rem;">
+                    <label>Periodic Status Log Frequency</label>
+                    <p style="font-size: 0.75rem; color: var(--text-dim); margin-top: -0.25rem; margin-bottom: 0.5rem;">
+                        Send a screenshot & room status summary via Email/Telegram on a schedule.
+                    </p>
+                    <select id="log-frequency" style="width: 100%; padding: 0.75rem 1rem; background: rgba(0,0,0,0.2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-family: inherit; font-size: 0.9rem;">
+                        <option value="0">Disabled</option>
+                        <option value="15">Every 15 Minutes</option>
+                        <option value="30">Every 30 Minutes</option>
+                        <option value="60">Every 1 Hour</option>
+                        <option value="180">Every 3 Hours</option>
+                    </select>
+                </div>
+            </div>
+
             <!-- ═══ Actions ═══ -->
             <div style="border-top: 1px solid var(--border); padding-top: 2rem; margin-top: 2rem; display: flex; gap: 1rem;">
                 <button class="btn-save" id="save-settings" style="flex: 2; padding: 1.25rem;">Commit Changes</button>

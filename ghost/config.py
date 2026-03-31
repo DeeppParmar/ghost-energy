@@ -53,6 +53,14 @@ TELEGRAM_ENABLED = os.getenv("VISIONCORE_TELEGRAM_ENABLED", "1") == "1"
 TELEGRAM_BOT_TOKEN = os.getenv("VISIONCORE_TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("VISIONCORE_TELEGRAM_CHAT_ID", "")
 
+# --- SMART AUTOMATION ---
+# Auto-off: after this many minutes of no activity, mark room as "auto-powered-down"
+# and send a notification. Set 0 to disable.
+AUTO_OFF_DELAY_MINUTES = 10
+# Periodic log frequency (in minutes). Sends a status summary with screenshot
+# to email + Telegram. Set 0 to disable. Options: 0, 15, 30, 60, 180.
+LOG_FREQUENCY_MINUTES = 0
+
 # --- DATABASE ---
 # Prefer Supabase Postgres URL. Example:
 # postgresql+psycopg://user:pass@host:5432/postgres

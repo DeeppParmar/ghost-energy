@@ -268,6 +268,23 @@ def _daily_report_scheduler():
             print(f"[REPORT SCHEDULER] Failed: {e}")
 
 
+# ── Periodic Log Sender Thread ──
+def _periodic_log_thread():
+    """Background thread: sends periodic status logs to email + Telegram."""
+    while True:
+        freq = getattr(config, 'LOG_FREQUENCY_MINUTES', 0)
+        if freq <= 0:
+            time.sleep(30)  # check again in 30s if setting changes
+            continue
+        time.sleep(freq * 60)
+        try:
+            with _camera_lock:
+                frame = _latest_frame.copy() if _latest_frame is not None else None
+            monitor.send_periodic_log(frame=frame)
+        except Exception as e:
+            print(f"[PERIODIC LOG] Thread error: {e}")
+
+
 # Start threads
 _cam_thread = threading.Thread(target=_camera_thread, daemon=True)
 _cam_thread.start()
@@ -277,6 +294,8 @@ _energy_tracker = threading.Thread(target=_energy_tracker_thread, daemon=True)
 _energy_tracker.start()
 _report_thread = threading.Thread(target=_daily_report_scheduler, daemon=True)
 _report_thread.start()
+_periodic_log = threading.Thread(target=_periodic_log_thread, daemon=True)
+_periodic_log.start()
 time.sleep(0.5)
 
 
@@ -304,12 +323,19 @@ def load_settings():
                 config.TELEGRAM_BOT_TOKEN = saved['telegram_bot_token']
             if 'telegram_chat_id' in saved:
                 config.TELEGRAM_CHAT_ID = saved['telegram_chat_id']
+            # ── Smart automation settings ──
+            if 'auto_off_delay_minutes' in saved:
+                config.AUTO_OFF_DELAY_MINUTES = int(saved['auto_off_delay_minutes'])
+            if 'log_frequency_minutes' in saved:
+                config.LOG_FREQUENCY_MINUTES = int(saved['log_frequency_minutes'])
             print(f"[SETTINGS] Loaded from {SETTINGS_FILE}")
             print(f"  → Receiver: {config.RECEIVER_EMAIL}")
             print(f"  → Room: {config.ROOM_NAME}")
             print(f"  → Alert Delay: {config.ALERT_DELAY_SECONDS}s")
             print(f"  → Camera Source: {getattr(config, 'CAMERA_SOURCE', 0)}")
             print(f"  → Telegram: {'ON' if getattr(config, 'TELEGRAM_ENABLED', False) else 'OFF'}")
+            print(f"  → Auto-Off: {getattr(config, 'AUTO_OFF_DELAY_MINUTES', 10)}min")
+            print(f"  → Log Freq: {getattr(config, 'LOG_FREQUENCY_MINUTES', 0)}min")
         except Exception as e:
             print(f"[SETTINGS] Failed to load: {e}")
 
@@ -324,6 +350,8 @@ def save_settings():
         'telegram_enabled': getattr(config, 'TELEGRAM_ENABLED', False),
         'telegram_bot_token': getattr(config, 'TELEGRAM_BOT_TOKEN', ''),
         'telegram_chat_id': getattr(config, 'TELEGRAM_CHAT_ID', ''),
+        'auto_off_delay_minutes': getattr(config, 'AUTO_OFF_DELAY_MINUTES', 10),
+        'log_frequency_minutes': getattr(config, 'LOG_FREQUENCY_MINUTES', 0),
     }
     try:
         with open(SETTINGS_FILE, 'w') as f:
@@ -601,6 +629,7 @@ def status():
         "luminance": getattr(monitor, "luminance", None),
         "light_debug": getattr(monitor, "light_debug", {}),
         "is_energy_wasted": monitor.is_energy_wasted,
+        "auto_off_active": monitor.auto_off_active,
         "time_since_presence": int(time.time() - _latest_seen),
         "ai_fps": monitor._ai_fps,
         "detection_confidence": getattr(monitor, "detection_confidence", None),
@@ -663,6 +692,8 @@ def get_settings():
         "telegram_enabled": getattr(config, "TELEGRAM_ENABLED", False),
         "telegram_bot_token": getattr(config, "TELEGRAM_BOT_TOKEN", ""),
         "telegram_chat_id": getattr(config, "TELEGRAM_CHAT_ID", ""),
+        "auto_off_delay_minutes": getattr(config, "AUTO_OFF_DELAY_MINUTES", 10),
+        "log_frequency_minutes": getattr(config, "LOG_FREQUENCY_MINUTES", 0),
     })
 
 @app.route('/api/settings', methods=['POST'])
@@ -708,12 +739,19 @@ def update_settings():
         config.TELEGRAM_BOT_TOKEN = data['telegram_bot_token'].strip()
     if 'telegram_chat_id' in data:
         config.TELEGRAM_CHAT_ID = data['telegram_chat_id'].strip()
+        
+    # ── Smart Automation settings ──
+    if 'auto_off_delay_minutes' in data:
+        config.AUTO_OFF_DELAY_MINUTES = int(data['auto_off_delay_minutes'])
+    if 'log_frequency_minutes' in data:
+        config.LOG_FREQUENCY_MINUTES = int(data['log_frequency_minutes'])
 
     monitor.alert_sent = False
     print(
         f"[SETTINGS] Updated → Email: {config.RECEIVER_EMAIL}, Room: {config.ROOM_NAME}, "
         f"Delay: {config.ALERT_DELAY_SECONDS}s, Camera: {getattr(config, 'CAMERA_SOURCE', 0)}, "
-        f"Telegram: {'ON' if getattr(config, 'TELEGRAM_ENABLED', False) else 'OFF'}"
+        f"Telegram: {'ON' if getattr(config, 'TELEGRAM_ENABLED', False) else 'OFF'}, "
+        f"AutoOff: {getattr(config, 'AUTO_OFF_DELAY_MINUTES', 10)}, LogFreq: {getattr(config, 'LOG_FREQUENCY_MINUTES', 0)}"
     )
 
     saved = save_settings()
@@ -727,6 +765,8 @@ def update_settings():
         "camera_source": getattr(config, "CAMERA_SOURCE", 0),
         "camera_restarted": camera_restarted,
         "telegram_enabled": getattr(config, "TELEGRAM_ENABLED", False),
+        "auto_off_delay_minutes": getattr(config, "AUTO_OFF_DELAY_MINUTES", 10),
+        "log_frequency_minutes": getattr(config, "LOG_FREQUENCY_MINUTES", 0),
     })
 
 
@@ -743,33 +783,28 @@ def test_email():
 
 @app.route('/api/test_telegram', methods=['POST'])
 def test_telegram():
-    """Send a test Telegram message to verify the bot token and chat ID.
-    Accepts optional token/chat_id in request body so users can test before saving."""
+    """Send a test Telegram message. Also saves the credentials so they persist."""
     data = request.get_json() or {}
-    # If token/chat_id sent in body, use those directly (allows testing before save)
+    # If token/chat_id sent in body, permanently save them
     token = (data.get('telegram_bot_token') or '').strip()
     chat_id = (data.get('telegram_chat_id') or '').strip()
-    if token and chat_id:
-        # Temporarily apply to config so the notifier picks them up
-        old_token = getattr(config, 'TELEGRAM_BOT_TOKEN', '')
-        old_chat = getattr(config, 'TELEGRAM_CHAT_ID', '')
+    if token:
         config.TELEGRAM_BOT_TOKEN = token
+    if chat_id:
         config.TELEGRAM_CHAT_ID = chat_id
-        try:
-            from logic.telegram_notifier import send_test_message
-            success, message = send_test_message()
-        except ImportError:
-            success, message = False, "Telegram notifier module not found."
-        finally:
-            # Restore originals (user hasn't committed yet)
-            config.TELEGRAM_BOT_TOKEN = old_token
-            config.TELEGRAM_CHAT_ID = old_chat
-    else:
-        try:
-            from logic.telegram_notifier import send_test_message
-            success, message = send_test_message()
-        except ImportError:
-            success, message = False, "Telegram notifier module not found."
+    if 'telegram_enabled' in data:
+        config.TELEGRAM_ENABLED = bool(data['telegram_enabled'])
+
+    # Persist to disk so settings survive restart
+    if token or chat_id:
+        save_settings()
+        print(f"[TELEGRAM] Credentials saved to settings.json")
+
+    try:
+        from logic.telegram_notifier import send_test_message
+        success, message = send_test_message()
+    except ImportError:
+        success, message = False, "Telegram notifier module not found."
     return jsonify({"success": success, "message": message})
 
 

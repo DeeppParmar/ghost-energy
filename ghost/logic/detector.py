@@ -8,6 +8,8 @@ import sys
 import os
 import smtplib
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
 import torch
 from collections import deque
 import requests
@@ -85,6 +87,12 @@ class RoomMonitor:
         # Average confidence (0.0-1.0) from the primary tracker for current detections.
         # Used by the /health and /status endpoints.
         self.detection_confidence = None
+
+        # ── Auto-Off State ──
+        # Tracks whether the room has been auto-powered-down due to prolonged inactivity.
+        self.auto_off_active = False
+        self._auto_off_notified = False
+        self._global_last_seen = time.time()
 
         # ── Multi-Zone State ──
         self.zones_state = {}
@@ -240,23 +248,46 @@ class RoomMonitor:
     # ── Email Alerting ────────────────────────────────────────────────
 
     def trigger_alert(self, zone_name="default", frame=None):
-        threading.Thread(target=self._send_email_alert, args=(zone_name,), daemon=True).start()
-        threading.Thread(target=lambda: self._send_telegram_alert(zone_name, frame=frame), daemon=True).start()
+        # CRITICAL: Copy frame before passing to background threads.
+        # The AI thread will overwrite the original array before the
+        # Telegram thread gets a chance to encode it as JPEG.
+        frame_copy = frame.copy() if frame is not None else None
+        print(f"[ALERT] trigger_alert fired — zone={zone_name}, has_frame={frame_copy is not None}")
+        threading.Thread(target=lambda: self._send_email_alert(zone_name, frame=frame_copy), daemon=True).start()
+        threading.Thread(target=lambda: self._send_telegram_alert(zone_name, frame=frame_copy), daemon=True).start()
 
-    def _send_email_alert(self, zone_name="default"):
+    def _send_email_alert(self, zone_name="default", frame=None):
         receiver = config.RECEIVER_EMAIL
+        if not receiver or not config.SENDER_EMAIL or not config.SENDER_PASSWORD:
+            print("[EMAIL] Skipped — email credentials not configured")
+            return
         subject = f"ENERGY ALERT: {config.ROOM_NAME} [{zone_name}]"
         body = (f"The Artificial Lights are ON in {config.ROOM_NAME} (Zone: {zone_name}), "
-                f"but no human presence has been detected for over {config.ALERT_DELAY_SECONDS} seconds.")
+                f"but no human presence has been detected for over {config.ALERT_DELAY_SECONDS} seconds."
+                f"\nTime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
         print(f"\n[ALERT!!!] {subject}")
         print(f"[ALERT] Sending to: {receiver}")
 
         try:
-            msg = MIMEText(body + f"\nTime: {datetime.now().strftime('%H:%M:%S')}")
-            msg['Subject'] = subject
-            msg['From'] = config.SENDER_EMAIL
-            msg['To'] = receiver
+            if frame is not None:
+                # Send email with screenshot attachment
+                msg = MIMEMultipart()
+                msg['Subject'] = subject
+                msg['From'] = config.SENDER_EMAIL
+                msg['To'] = receiver
+                msg.attach(MIMEText(body, 'plain'))
+                ok, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ok:
+                    img_part = MIMEImage(buf.tobytes(), _subtype='jpeg')
+                    img_part.add_header('Content-Disposition', 'attachment', filename='evidence.jpg')
+                    msg.attach(img_part)
+            else:
+                msg = MIMEText(body)
+                msg['Subject'] = subject
+                msg['From'] = config.SENDER_EMAIL
+                msg['To'] = receiver
+
             with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
                 server.login(config.SENDER_EMAIL, config.SENDER_PASSWORD)
                 server.send_message(msg)
@@ -288,7 +319,14 @@ class RoomMonitor:
 
     def _send_telegram_alert(self, zone_name="default", frame=None):
         """Send Telegram alert with optional live frame snapshot."""
+        print(f"[TELEGRAM] _send_telegram_alert called — zone={zone_name}, has_frame={frame is not None}")
         if not getattr(config, "TELEGRAM_ENABLED", False):
+            print("[TELEGRAM] Skipped — TELEGRAM_ENABLED is False")
+            return
+        token = getattr(config, "TELEGRAM_BOT_TOKEN", "")
+        chat_id = getattr(config, "TELEGRAM_CHAT_ID", "")
+        if not token or not chat_id:
+            print(f"[TELEGRAM] Skipped — token={'SET' if token else 'EMPTY'}, chat_id={'SET' if chat_id else 'EMPTY'}")
             return
         try:
             from logic.telegram_notifier import send_alert_with_snapshot, send_message
@@ -545,6 +583,33 @@ class RoomMonitor:
                 else:
                     zstate["is_energy_wasted"] = False
 
+        # ── Auto-Off Logic ──────────────────────────────────────────────
+        if self.person_count > 0:
+            self._global_last_seen = current_time
+            # Person returned → auto-on if was off
+            if self.auto_off_active:
+                self.auto_off_active = False
+                self._auto_off_notified = False
+                print(f"[AUTO-ON] Activity resumed in {config.ROOM_NAME}")
+                # Send "room re-activated" notification
+                threading.Thread(
+                    target=self._send_auto_on_notification, daemon=True
+                ).start()
+        else:
+            auto_off_delay = getattr(config, "AUTO_OFF_DELAY_MINUTES", 0)
+            if auto_off_delay > 0:
+                empty_global = current_time - self._global_last_seen
+                if empty_global >= auto_off_delay * 60:
+                    self.auto_off_active = True
+                    if not self._auto_off_notified:
+                        self._auto_off_notified = True
+                        print(f"[AUTO-OFF] No activity for {auto_off_delay}min in {config.ROOM_NAME}")
+                        frame_copy = frame.copy() if frame is not None else None
+                        threading.Thread(
+                            target=lambda: self._send_auto_off_notification(frame_copy),
+                            daemon=True,
+                        ).start()
+
         # ── Track AI FPS ──
         t_elapsed = time.time() - t_start
         self._fps_ring.append(1.0 / max(t_elapsed, 1e-6))
@@ -556,6 +621,119 @@ class RoomMonitor:
             self._overlay_light_status = self.light_status
 
         return frame
+
+    # ── Auto-Off / Auto-On Notifications ──────────────────────────────
+
+    def _send_auto_off_notification(self, frame=None):
+        """Notify via email + Telegram that the room has been auto-powered-down."""
+        text = (
+            f"🔴 <b>Auto Power-Down</b>\n"
+            f"🏢 <b>Room:</b> {config.ROOM_NAME}\n"
+            f"⏱ No activity for {getattr(config, 'AUTO_OFF_DELAY_MINUTES', 10)} minutes\n"
+            f"💡 Lights should be turned OFF\n"
+            f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        # Telegram
+        try:
+            from logic.telegram_notifier import send_alert_with_snapshot, send_message
+            if frame is not None:
+                send_alert_with_snapshot(
+                    frame_bgr=frame, room=config.ROOM_NAME,
+                    zone="ALL", duration=getattr(config, 'AUTO_OFF_DELAY_MINUTES', 10) * 60,
+                    money=0
+                )
+            else:
+                send_message(text)
+        except Exception as e:
+            print(f"[AUTO-OFF] Telegram failed: {e}")
+        # Email
+        try:
+            self._send_email_alert(zone_name="AUTO-OFF", frame=frame)
+        except Exception as e:
+            print(f"[AUTO-OFF] Email failed: {e}")
+
+    def _send_auto_on_notification(self):
+        """Notify that the room has been re-activated (person returned)."""
+        text = (
+            f"🟢 <b>Room Re-Activated</b>\n"
+            f"🏢 <b>Room:</b> {config.ROOM_NAME}\n"
+            f"👤 Activity detected — system monitoring resumed\n"
+            f"🕐 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        try:
+            from logic.telegram_notifier import send_message
+            send_message(text)
+        except Exception:
+            pass
+
+    # ── Periodic Status Log ───────────────────────────────────────────
+
+    def send_periodic_log(self, frame=None):
+        """Send a periodic status summary to email + Telegram with screenshot.
+        Called by the background thread in app.py."""
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        status = "OCCUPIED" if self.person_count > 0 else "EMPTY"
+        light = self.light_status
+        auto_off = "YES" if self.auto_off_active else "NO"
+
+        text = (
+            f"📊 <b>Periodic Status Log</b>\n"
+            f"🏢 <b>Room:</b> {config.ROOM_NAME}\n"
+            f"👤 <b>Status:</b> {status} ({self.person_count} persons)\n"
+            f"💡 <b>Light:</b> {light}\n"
+            f"🔴 <b>Auto-Off:</b> {auto_off}\n"
+            f"⚡ <b>Waste Active:</b> {'YES' if self.is_energy_wasted else 'NO'}\n"
+            f"🕐 <b>Time:</b> {now}"
+        )
+
+        print(f"[PERIODIC LOG] Sending status log at {now}")
+
+        # Telegram
+        try:
+            from logic.telegram_notifier import send_alert_with_snapshot, send_message
+            if frame is not None:
+                import cv2
+                ok, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                if ok:
+                    from logic.telegram_notifier import send_photo
+                    send_photo(buf.tobytes(), text)
+                else:
+                    send_message(text)
+            else:
+                send_message(text)
+        except Exception as e:
+            print(f"[PERIODIC LOG] Telegram failed: {e}")
+
+        # Email
+        try:
+            receiver = config.RECEIVER_EMAIL
+            if receiver and config.SENDER_EMAIL and config.SENDER_PASSWORD:
+                subject = f"[STATUS LOG] {config.ROOM_NAME} — {status}"
+                body = text.replace('<b>', '').replace('</b>', '')
+
+                if frame is not None:
+                    msg = MIMEMultipart()
+                    msg['Subject'] = subject
+                    msg['From'] = config.SENDER_EMAIL
+                    msg['To'] = receiver
+                    msg.attach(MIMEText(body, 'plain'))
+                    ok, buf = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+                    if ok:
+                        img_part = MIMEImage(buf.tobytes(), _subtype='jpeg')
+                        img_part.add_header('Content-Disposition', 'attachment', filename='status.jpg')
+                        msg.attach(img_part)
+                else:
+                    msg = MIMEText(body)
+                    msg['Subject'] = subject
+                    msg['From'] = config.SENDER_EMAIL
+                    msg['To'] = receiver
+
+                with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
+                    server.login(config.SENDER_EMAIL, config.SENDER_PASSWORD)
+                    server.send_message(msg)
+                print(f"[PERIODIC LOG] Email sent to {receiver}")
+        except Exception as e:
+            print(f"[PERIODIC LOG] Email failed: {e}")
 
     # ── Draw Overlay (called by stream thread — never blocks AI) ─────
 
