@@ -35,3 +35,5 @@ Timestamp,Room,Duration_Seconds,Status,Money_Wasted
 2026-03-31 15:18:18,Computer Lab,53.54,ALERT_SENT,0.02
 2026-03-31 15:20:22,Computer Lab,30.13,ALERT_SENT,0.01
 2026-03-31 15:22:57,Computer Lab,30.06,ALERT_SENT,0.01
+2026-03-31 15:25:58,Computer Lab,30.22,ALERT_SENT,0.01
+2026-03-31 15:28:00,Computer Lab,30.3,ALERT_SENT,0.01

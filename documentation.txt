@@ -1,0 +1,494 @@
+VisionCore Project Documentation
+================================
+
+Last updated: 2026-03-31
+Project root: ghost energy/
+Primary app package: ghost/
+
+
+1) Project Overview
+-------------------
+VisionCore is a Flask-based, real-time AI monitoring system focused on:
+
+- Human presence detection from camera input
+- Light/luminance classification (Dark, Artificial Light, Natural Sunlight)
+- Energy-waste detection (lights on + no human presence over threshold)
+- Alerting + audit logging
+- Historical analytics, exports, and PDF report generation
+
+The project combines:
+
+- Backend: Flask + OpenCV + Ultralytics YOLO + background worker threads
+- Frontend: Jinja templates + vanilla JS + Chart.js + custom CSS
+- Data persistence: CSV audit log + generated PDF reports + JSON settings
+
+
+2) High-Level Architecture
+--------------------------
+Core files:
+
+- ghost/app.py
+  Main Flask application, camera/AI worker orchestration, API routes, page routes.
+
+- ghost/logic/detector.py
+  Detection engine (RoomMonitor), including:
+  - primary tracker (YOLOv8n)
+  - secondary verifier (YOLOv8m)
+  - light/luminance analysis
+  - overlay drawing
+  - energy waste state transitions
+  - email alert dispatching
+
+- ghost/logic/report_generator.py
+  Daily PDF report generation from audit CSV using fpdf2.
+
+- ghost/config.py
+  Runtime configuration constants (camera source, thresholds, timings, email).
+
+- ghost/static/script.js
+  Frontend control plane for polling APIs, updating dashboard widgets/charts,
+  showing toasts, and handling settings/report/history interactions.
+
+- ghost/templates/*.html
+  UI pages and component layout:
+  - base.html
+  - home.html
+  - monitor.html
+  - history.html
+  - reports.html
+  - settings.html
+
+- ghost/static/style.css
+  Complete visual styling system.
+
+Data files:
+
+- ghost/reports/energy_audit.csv
+  Canonical energy incident/audit log.
+
+- ghost/reports/*.pdf
+  Generated audit report archive.
+
+- ghost/settings.json
+  Persisted user settings from Settings page.
+
+
+3) Runtime Threading Model
+--------------------------
+The backend uses multiple daemon threads started from app.py:
+
+1. Camera thread (_camera_thread)
+   - Opens configured camera source.
+   - Validates frames to reject broken/corrupt feeds.
+   - Stores latest frame in shared memory (_latest_frame).
+
+2. AI thread (_ai_thread)
+   - Reads latest frame.
+   - Runs monitor.process_frame(frame).
+   - Updates occupancy history buffers for charting.
+
+3. Energy tracker thread (_energy_tracker_thread)
+   - Runs once per second.
+   - Accumulates waste time while monitor.is_energy_wasted is true.
+   - Resets daily counters at midnight.
+
+4. Daily report scheduler (_daily_report_scheduler)
+   - Sleeps until 23:55 daily.
+   - Auto-generates a daily PDF report.
+
+Important shared-state locks:
+
+- _camera_lock for frame buffer access
+- _energy_lock for waste-time counters
+- detector internal locks:
+  - _overlay_lock
+  - _verifier_lock
+
+
+4) Detection & AI Logic (RoomMonitor)
+-------------------------------------
+Class: RoomMonitor in ghost/logic/detector.py
+
+Model pipeline:
+
+- Primary model: YOLOv8n (fast tracker)
+- Secondary model: YOLOv8m (background verifier)
+- Device auto-selection:
+  - CUDA if available, else CPU
+  - warmup pass on GPU
+
+Per-frame flow (process_frame):
+
+1. Resize input frame to inference size (device-dependent).
+2. Run primary model with tracking (ByteTrack).
+3. Extract person tracks (class 0).
+4. Merge with verifier detections using IoU threshold.
+5. Apply shape/area filters for valid humans.
+6. Set detection confidence metric from accepted humans.
+7. Collect non-human object overlays.
+8. Feed verifier frame asynchronously.
+9. Update overlay snapshot data for stream thread.
+10. Smooth person count using recent-frame median logic.
+11. Run light analysis.
+12. Update waste state:
+    - if person_count > 0: clear waste state
+    - else if Artificial Light and empty duration >= ALERT_DELAY_SECONDS:
+      set is_energy_wasted, send alert, log audit row
+13. Track AI FPS moving average.
+
+Light/luminance logic (analyze_light):
+
+- Computes grayscale mean brightness (luminance 0-255 style scale).
+- If below BRIGHTNESS_THRESHOLD -> Dark.
+- If night-time window -> Artificial Light.
+- Else evaluates configured window region:
+  - window brightness
+  - blue/red ratio
+  and classifies Natural Sunlight vs Artificial Light.
+
+Debug telemetry returned by /status:
+
+- luminance
+- light_debug:
+  - brightness_mean
+  - brightness_threshold
+  - is_night_time
+  - window_brightness
+  - blue_red_ratio
+  - decision
+
+Overlay:
+
+- draw_overlay() paints:
+  - human/object boxes
+  - IDs/confidence labels
+  - luminance + light status banner directly on frame
+
+
+5) Camera Handling & Stability Strategy
+---------------------------------------
+Implemented in ghost/app.py:
+
+- Camera source can be numeric index or stream URL.
+- On startup and on source change:
+  - source is probed for valid frames.
+  - flat/corrupted feeds are rejected.
+- Camera thread can be safely restarted via _restart_camera_thread().
+- Current source can be persisted through settings.json.
+
+This design addresses:
+
+- Wrong webcam selection
+- Broken virtual camera output
+- Need for runtime switching from Settings UI
+
+
+6) Frontend Architecture
+------------------------
+Base shell:
+
+- base.html: sidebar navigation, content slot, global toast container.
+
+Pages:
+
+- home.html
+  - high-level system status
+  - monthly summary cards
+  - health panel
+
+- monitor.html
+  - live video stream
+  - presence and luminance cards
+  - energy leak audit widgets
+  - AI confidence/verifier status
+  - occupancy chart
+  - telemetry bars
+
+- history.html
+  - summary analytics cards
+  - heatmap
+  - 7-day frequency chart
+  - event stream table
+  - CSV export
+  - interactive chart-to-heatmap filtering
+
+- reports.html
+  - generate report action
+  - report archive list and downloads
+
+- settings.html
+  - email target
+  - room name
+  - alert delay
+  - camera source
+  - test email
+
+Client control layer:
+
+- static/script.js (VisionHUD class)
+  - handles API polling intervals
+  - updates cards/charts/tables
+  - controls toast behavior (debounced, state-aware)
+  - settings and report actions
+  - heatmap rendering and date-filter interaction
+
+
+7) Route & API Documentation
+----------------------------
+Page routes:
+
+- GET /
+  Home page.
+
+- GET /monitor
+  Live command center UI.
+
+- GET /history
+  Historical analytics UI.
+
+- GET /reports
+  PDF report UI.
+
+- GET /settings
+  Settings UI.
+
+- GET /video_feed
+  MJPEG live video stream with overlays.
+
+Core status APIs:
+
+- GET /status
+  Real-time AI state:
+  person_count, light_status, luminance, light_debug,
+  waste state, time_since_presence, ai_fps, confidence, verifier status.
+
+- GET /health
+  Service/component health summary:
+  camera, AI, verifier queue, energy tracker, uptime.
+
+- GET /stats
+  Runtime/system telemetry:
+  uptime, detection totals, AI FPS, hardware info, CPU/RAM (if psutil).
+
+Settings APIs:
+
+- GET /api/settings
+  Returns receiver_email, room_name, alert_delay, camera_source.
+
+- POST /api/settings
+  Updates settings, persists to settings.json, restarts camera if source changes.
+
+- POST /api/test_email
+  Sends a test email via detector email workflow.
+
+History/Audit APIs:
+
+- GET /api/history
+  Returns recent audit entries from CSV.
+
+- GET /api/history_stats
+  Aggregated totals (incidents, waste hours, money wasted/saved).
+
+- GET /api/energy_savings
+  Last 7 days waste-hours data for chart (labels + dates + values).
+
+- GET /api/heatmap_data
+  Hour×weekday waste map; supports optional ?date=YYYY-MM-DD filter.
+
+- GET /api/monthly_summary
+  Current month aggregate summary.
+
+- GET /api/export_csv?from=YYYY-MM-DD&to=YYYY-MM-DD
+  CSV export with optional date filtering.
+
+Energy live API:
+
+- GET /api/energy_live
+  Session + today waste metrics and rate model.
+
+Report APIs:
+
+- POST /api/generate_report
+  On-demand PDF report generation.
+
+- GET /api/reports
+  List generated PDF reports.
+
+- GET /download_report/<filename>
+  Download a specific PDF report.
+
+
+8) Data Model & Storage
+-----------------------
+Audit CSV schema (canonical):
+
+- Timestamp
+- Room
+- Duration_Seconds
+- Status
+- Money_Wasted
+
+Behavior:
+
+- CSV schema migration is performed at startup if old schema detected.
+- Money_Wasted is backfilled where missing.
+- All analytics and exports derive from this CSV.
+
+Settings persistence:
+
+- settings.json stores:
+  - receiver_email
+  - room_name
+  - alert_delay
+  - camera_source
+
+Reports:
+
+- PDFs are saved under ghost/reports/energy_report_<date>.pdf
+
+
+9) Alerting & Notifications
+---------------------------
+Email alerts:
+
+- Triggered when:
+  - room empty for threshold time, and
+  - light classified as Artificial Light.
+- Sent asynchronously via SMTP SSL (Gmail).
+
+Frontend toast policy:
+
+- No-human toast is state-aware and debounced.
+- It appears only on meaningful waste-state transitions,
+  not continuously during idle/noise conditions.
+
+
+10) Analytics & Workflow
+------------------------
+End-to-end workflow:
+
+1. Camera captures frames.
+2. AI thread classifies presence and light.
+3. Waste state toggles based on occupancy + light.
+4. Waste incidents are appended to CSV.
+5. Dashboard shows live KPIs and trends.
+6. History view computes aggregates/heatmaps from CSV.
+7. Reports are generated on-demand and nightly scheduler.
+
+Interactive history workflow:
+
+- User clicks a 7-day bar.
+- Frontend maps clicked index -> concrete date.
+- Heatmap API queried with ?date=<selected_day>.
+- Heatmap redraws to show hourly pattern for that day.
+
+
+11) Configuration Reference
+---------------------------
+Defined in ghost/config.py:
+
+- ROOM_NAME
+- CAMERA_SOURCE
+- ALERT_DELAY_SECONDS
+- BULB_WATTAGE
+- ELECTRICITY_RATE
+- BRIGHTNESS_THRESHOLD
+- WINDOW_ZONE
+- NIGHT_START_HOUR / NIGHT_END_HOUR
+- PERSON_ASPECT_MIN
+- PERSON_MIN_BOX_AREA_RATIO
+- PERSON_ACCEPT_CONF_MIN
+- VERIFIER_IOU_MIN
+- SENDER_EMAIL / SENDER_PASSWORD / RECEIVER_EMAIL
+
+Operational note:
+
+- Email credentials are currently stored in plain config.
+- Recommended for production: move to environment variables + secret manager.
+
+
+12) Stability, Performance, and Quality Controls
+------------------------------------------------
+Implemented controls:
+
+- Async separation: camera, AI, energy, scheduler threads.
+- Frame-level lock discipline.
+- Verifier worker decoupled from stream loop.
+- FPS ring averaging for stable telemetry.
+- Camera probe and corruption rejection.
+- Fallback tracker -> detect path when tracking call fails.
+- CSV migration safeguards.
+- Graceful fallback outputs when data unavailable.
+
+Suggested next hardening steps:
+
+- Add structured logging with log levels.
+- Add unit/integration tests for APIs and detector state transitions.
+- Add health checks for SMTP and model availability.
+- Add retry/backoff wrappers for camera read failures.
+- Move secrets from config.py to env vars.
+
+
+13) Feature Inventory (Current)
+-------------------------------
+- Real-time person detection with tracking IDs.
+- Secondary model verification path.
+- Light/luminance analysis and debug telemetry.
+- Energy waste state machine and email alerts.
+- On-frame AI telemetry overlay.
+- Dynamic monitor dashboard widgets.
+- Real-time energy leakage metrics.
+- Historical event stream and CSV export.
+- 7-day waste frequency chart.
+- Interactive heatmap filtering by clicked chart day.
+- Monthly summary KPIs.
+- PDF report generation (manual + scheduled).
+- Runtime settings management with camera switching.
+usne bheja hai na dekna hoga
+
+14) Detailed Report (System Assessment)
+---------------------------------------
+Architecture maturity:
+- Good modular separation (app, detector, reports, templates/static).
+- Clear data flow from detection -> audit -> analytics/reporting.
+
+Strengths:
+- Practical real-time pipeline with asynchronous workers.
+- Full-stack observability (status, health, stats, debug telemetry).
+- Usable operations tooling (settings UI, test email, exports, reports).
+- Consistent analytics source of truth (audit CSV).
+
+Current risks:
+- Plaintext email secrets in config.
+- No formal automated test suite in repository.
+- Long-running thread lifecycle is process-bound (no external supervisor integration shown).
+
+Readiness:
+- Functional for local/edge deployment and demos.
+- Suitable for small-scale lab monitoring.
+- For production, prioritize secrets management, tests, and structured logging.
+
+
+15) Quick Troubleshooting Guide
+-------------------------------
+Issue: Monitor shows EMPTY while person visible
+- Check /status person_count and detection_confidence.
+- Tune PERSON_* thresholds in config.
+- Confirm camera source points to correct device.
+
+Issue: Wrong/corrupt camera feed
+- Update camera_source in Settings.
+- Save settings to trigger camera restart.
+- Verify /health camera.running = true.
+
+Issue: Luminance classification appears incorrect
+- Check /status light_debug values.
+- Tune BRIGHTNESS_THRESHOLD and WINDOW_ZONE.
+- Validate room lighting and camera exposure behavior.
+
+Issue: History/heatmap appears empty
+- Verify reports/energy_audit.csv exists and contains ALERT_SENT rows.
+- Trigger an actual waste event and refresh history.
+
+
+End of documentation.
