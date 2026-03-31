@@ -45,12 +45,12 @@
             </li>
         </ul>
 
-        <div style="margin-top: auto; padding: 1rem; background: rgba(255,255,255,0.03); border-radius: 12px; font-size: 0.75rem; color: var(--text-dim);">
-            <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
-                <div style="width:8px; height:8px; background:var(--success); border-radius:50%; box-shadow: 0 0 8px var(--success);"></div>
-                AI Engine Active
+        <div class="sidebar-status">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:6px;">
+                <div class="status-dot-active"></div>
+                <span style="font-size: 0.8rem; font-weight: 800; letter-spacing: 0.5px; color: #fff;">AI Engine Active</span>
             </div>
-            Node: SECTOR-7G
+            <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); font-weight: 700; opacity: 0.8;">Node: SECTOR-7G</div>
         </div>
     </aside>
 
@@ -61,6 +61,9 @@
             <p>VisionCore Command Center v2.4.0 • Secured Edge Node</p>
         </footer>
     </main>
+
+    <!-- Global toast container for subtle, non-blocking notifications -->
+    <div id="toast-container"></div>
 
     <script src="{{ url_for('static', filename='script.js') }}"></script>
     {% block scripts %}{% endblock %}

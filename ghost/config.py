@@ -17,6 +17,15 @@ WINDOW_ZONE = [0.0, 0.0, 0.45, 0.65] # [x_start, y_start, x_end, y_end] as %
 NIGHT_START_HOUR = 19 # 7 PM
 NIGHT_END_HOUR = 6    # 6 AM
 
+# ── Human Detection Tuning ─────────────────────────────────────────
+# These thresholds only affect the final "person_count" decision.
+# If the UI shows a long time in "EMPTY" even when humans are present,
+# these values may need to be relaxed for your camera angle/scene.
+PERSON_ASPECT_MIN = 0.55               # accept if box_h / box_w >= this
+PERSON_MIN_BOX_AREA_RATIO = 0.005     # accept if box_area >= ratio * frame_area
+PERSON_ACCEPT_CONF_MIN = 0.45         # accept tracker person without verifier if conf >= this
+VERIFIER_IOU_MIN = 0.25               # IoU threshold to merge tracker + verifier boxes
+
 # --- EMAIL ALERT SYSTEM (Safe & Secure) ---
 SENDER_EMAIL = "vaish4894@gmail.com"
 SENDER_PASSWORD = "ezpi yboc kqbt hmug" 

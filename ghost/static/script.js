@@ -7,6 +7,9 @@ class VisionHUD {
     constructor() {
         this.occChart = null;
         this.lastUpdate = Date.now();
+        this._toastActiveKeys = new Set();
+        this._lastPresenceCount = null;
+        this._lastNoHumanToastAt = 0;
         this.init();
     }
 
@@ -167,6 +170,17 @@ class VisionHUD {
             if (lightStatusEl) lightStatusEl.textContent = data.light_status;
             if (lightTypeEl) lightTypeEl.textContent = data.light_type || 'Spectrum Analyzing...';
 
+            // Luminance HUD overlay (monitor page)
+            const lumValEl = document.getElementById('luminance-value');
+            const lumModeEl = document.getElementById('luminance-mode');
+            if (lumValEl) {
+                const lum = typeof data.luminance === 'number' ? data.luminance : null;
+                lumValEl.textContent = lum !== null ? Math.round(lum).toString().padStart(3, ' ') : '--';
+            }
+            if (lumModeEl) {
+                lumModeEl.textContent = data.light_status || 'Analyzing…';
+            }
+
             // AI FPS
             const fpsEl = document.getElementById('ai-fps');
             if (fpsEl && data.ai_fps !== undefined) {
@@ -240,6 +254,35 @@ class VisionHUD {
             if (alertBanner) {
                 alertBanner.style.display = data.is_energy_wasted ? 'block' : 'none';
             }
+
+            // Toast: Only when we enter a waste state (not on every idle poll).
+            // Conditions:
+            //  - Room is considered wasting energy (backend logic)
+            //  - Person count dropped to 0 from >0 OR we have just crossed 30s idle
+            //  - Toast not shown in the last 2 minutes
+            const now = Date.now();
+            const wasOccupied = (this._lastPresenceCount ?? 0) > 0;
+            const justBecameEmpty = wasOccupied && data.person_count === 0;
+            const idleSeconds = data.time_since_presence || 0;
+            const crossedIdleThreshold = idleSeconds >= 30;
+            const longSinceLastToast = (now - this._lastNoHumanToastAt) > 120000;
+
+            if (data.is_energy_wasted && (justBecameEmpty || crossedIdleThreshold) && longSinceLastToast) {
+                this.showToastOnce(
+                    'no-human-bright',
+                    'No human in frame',
+                    'AI sees lights but no presence in the sector.',
+                    'warning'
+                );
+                this._lastNoHumanToastAt = now;
+            }
+
+            // Reset toast key when conditions are healthy again to allow future alerts.
+            if (!data.is_energy_wasted || data.person_count > 0 || data.light_status === 'Dark') {
+                this._toastActiveKeys.delete('no-human-bright');
+            }
+
+            this._lastPresenceCount = data.person_count;
 
         } catch (err) {
             console.error('Status fetch error:', err);
@@ -441,11 +484,16 @@ class VisionHUD {
     }
 
     async renderHeatmap() {
+        return this._renderHeatmapInternal();
+    }
+
+    async _renderHeatmapInternal(filterDate) {
         const container = document.getElementById('heatmap-container');
         if (!container) return;
 
         try {
-            const res = await fetch('/api/heatmap_data');
+            const url = filterDate ? `/api/heatmap_data?date=${encodeURIComponent(filterDate)}` : '/api/heatmap_data';
+            const res = await fetch(url);
             const d = await res.json();
 
             container.innerHTML = '';
@@ -551,6 +599,10 @@ class VisionHUD {
         }
     }
 
+    async renderHeatmapForDate(dateIso) {
+        await this._renderHeatmapInternal(dateIso);
+    }
+
     async loadMonthlySummary() {
         try {
             const res = await fetch('/api/monthly_summary');
@@ -596,7 +648,7 @@ class VisionHUD {
         try {
             const res = await fetch('/api/settings'); // Use API path
             const data = await res.json();
-            ['receiver-email', 'room-name', 'alert-delay'].forEach(id => {
+            ['receiver-email', 'room-name', 'alert-delay', 'camera-source'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.value = data[id.replace('-', '_')] || '';
             });
@@ -608,7 +660,8 @@ class VisionHUD {
         const payload = {
             receiver_email: document.getElementById('receiver-email').value,
             room_name: document.getElementById('room-name').value,
-            alert_delay: document.getElementById('alert-delay').value
+            alert_delay: document.getElementById('alert-delay').value,
+            camera_source: document.getElementById('camera-source').value
         };
 
         try {
@@ -618,7 +671,11 @@ class VisionHUD {
                 body: JSON.stringify(payload)
             });
             const data = await res.json();
-            this.showStatusMsg(msgEl, data.success ? '✅ Committed to AI Core' : '❌ Committal Failed');
+            if (data.success && data.camera_restarted) {
+                this.showStatusMsg(msgEl, '✅ Saved. Camera source switched.');
+            } else {
+                this.showStatusMsg(msgEl, data.success ? '✅ Committed to AI Core' : '❌ Committal Failed');
+            }
         } catch (e) { this.showStatusMsg(msgEl, '❌ Local Sync Error'); }
     }
 
@@ -682,6 +739,58 @@ class VisionHUD {
         el.textContent = text;
         if (color) el.style.color = color;
         setTimeout(() => el.textContent = '', 4000);
+    }
+
+    // ─── Toast helpers ───
+    showToastOnce(key, title, message, variant = 'default', ttlMs = 4000) {
+        if (this._toastActiveKeys.has(key)) return;
+        this._toastActiveKeys.add(key);
+        this.showToast(title, message, variant, ttlMs, () => {
+            this._toastActiveKeys.delete(key);
+        });
+    }
+
+    showToast(title, message, variant = 'default', ttlMs = 4000, onClose = null) {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = 'toast' + (variant === 'warning' ? ' toast-warning' : variant === 'success' ? ' toast-success' : '');
+
+        const body = document.createElement('div');
+        body.className = 'toast-body';
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'toast-title';
+        titleEl.textContent = title;
+
+        const msgEl = document.createElement('div');
+        msgEl.className = 'toast-message';
+        msgEl.textContent = message;
+
+        body.appendChild(titleEl);
+        body.appendChild(msgEl);
+
+        const closeBtn = document.createElement('button');
+        closeBtn.className = 'toast-close';
+        closeBtn.type = 'button';
+        closeBtn.textContent = '✕';
+        closeBtn.onclick = () => {
+            toast.style.animation = 'toastOut 0.25s ease forwards';
+            setTimeout(() => {
+                toast.remove();
+                if (onClose) onClose();
+            }, 260);
+        };
+
+        toast.appendChild(body);
+        toast.appendChild(closeBtn);
+        container.appendChild(toast);
+
+        setTimeout(() => {
+            if (!document.body.contains(toast)) return;
+            closeBtn.click();
+        }, ttlMs);
     }
 }
 

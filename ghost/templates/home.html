@@ -5,27 +5,29 @@
 {% block content %}
 <header class="clean-header">
     <div>
-        <h2 style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2.5px; color: var(--text-dim); margin-bottom: 0.25rem; font-weight: 800;">System Overview</h2>
-        <h1 style="font-size: 2.25rem; font-weight: 800; letter-spacing: -1.2px;">Intelligence Hub</h1>
+        <h2>System Overview</h2>
+        <h1>Intelligence Hub</h1>
     </div>
     <div id="live-clock" class="header-clock"></div>
 </header>
 
-<section class="hero-bento-minimal">
+<section class="bento-card hero-bento">
     <div class="hero-visual-minimal">
-        <div class="hero-header" style="padding: 6rem 2rem;">
-            <div class="hud-status" style="margin-bottom: 1.5rem;"><span class="dot-online"></span> NODE SECTOR-7G</div>
-            <div id="system-health-badge" style="cursor: pointer; user-select: none; margin-bottom: 1.5rem; display: inline-flex; align-items: center; gap: 10px; padding: 0.5rem 1rem; border-radius: 100px; border: 1px solid var(--border); background: rgba(255,255,255,0.02);">
-                <span id="system-health-dot" style="width: 9px; height: 9px; border-radius: 50%; background: var(--text-dim); box-shadow: 0 0 12px rgba(148,163,184,0.35);"></span>
-                <span id="system-health-text" style="font-size: 0.75rem; font-weight: 900; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim);">System Syncing...</span>
+        <div class="hero-header">
+            <div style="cursor: pointer; user-select: none; margin-bottom: 2rem; display: inline-flex; align-items: center; gap: 10px; padding: 0.5rem 1rem; border-radius: 999px; border: 1px solid var(--border); background: var(--bg-elevated); box-shadow: 0 4px 12px rgba(0,0,0,0.5);" id="system-health-badge">
+                <span id="system-health-dot" style="width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); transition: 0.3s; box-shadow: 0 0 10px rgba(148,163,184,0.35);"></span>
+                <span id="system-health-text" style="font-size: 0.75rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: var(--text-dim); transition: 0.3s;">System Syncing...</span>
             </div>
-            <div id="system-health-panel" style="display: none; margin-bottom: 1.5rem; width: 100%; max-width: 720px; padding: 1rem; border: 1px solid var(--border); border-radius: 14px; background: rgba(255,255,255,0.02);">
-                <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); font-weight: 800; margin-bottom: 0.75rem;">System Health Telemetry</div>
-                <pre id="system-health-json" style="margin: 0; white-space: pre-wrap; text-align: left; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size: 0.75rem; color: var(--text); opacity: 0.9;"></pre>
+            
+            <div id="system-health-panel" style="display: none; margin-bottom: 1.5rem; width: 100%; max-width: 640px; padding: 1.5rem; border: 1px solid var(--border); border-radius: var(--radius-md); background: rgba(0,0,0,0.6); backdrop-filter: blur(20px);">
+                <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); font-weight: 800; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;">System Health Telemetry</div>
+                <pre id="system-health-json" style="margin: 0; white-space: pre-wrap; text-align: left; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.8rem; color: var(--text); opacity: 0.85;"></pre>
             </div>
-            <h1 class="hero-title">Precision Monitoring. Automated Efficiency.</h1>
-            <p class="hero-subtitle">VisionCore powers enterprise-grade room intelligence with real-time neural inference and energy waste mitigation.</p>
-            <div class="hero-actions">
+
+            <h1 class="hero-title">Precision Monitoring.<br>Automated Efficiency.</h1>
+            <p class="hero-subtitle">VisionCore powers enterprise-grade room intelligence with real-time neural inference and predictive energy mitigation.</p>
+            
+            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
                 <a href="/monitor" class="btn-cta">Start Monitoring</a>
                 <a href="/reports" class="btn-cta btn-secondary">Audit Archive</a>
             </div>
@@ -46,18 +48,18 @@
             </div>
             <div class="status-node">
                 <span class="node-label">Neural Engine</span>
-                <span class="node-value" style="color: var(--success);">v2.4 ACTIVE</span>
+                <span class="node-value" style="color: var(--success); text-shadow: 0 0 10px rgba(16,185,129,0.4);">v2.4 ACTIVE</span>
             </div>
         </div>
     </div>
 </section>
 
 <!-- ─── This Month Summary ─── -->
-<section style="margin-top: 2rem;">
-    <header style="display:flex; justify-content: space-between; align-items:flex-end; margin-bottom: 1.25rem; gap: 1rem;">
+<section style="margin-top: 3.5rem;">
+    <header class="clean-header">
         <div>
-            <h2 style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); margin-bottom: 0.5rem; font-weight: 800;">This month</h2>
-            <div id="monthly-month-label" style="font-size: 2rem; font-weight: 900; letter-spacing: -1px; color: #fff;">--</div>
+            <h2>This Month Activity</h2>
+            <div id="monthly-month-label" style="font-size: 2.25rem; font-weight: 900; letter-spacing: -1px; color: #fff;">--</div>
         </div>
     </header>
 

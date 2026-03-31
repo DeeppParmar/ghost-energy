@@ -3,29 +3,35 @@
 {% block title %}System Configuration | VisionCore{% endblock %}
 
 {% block content %}
-<header style="margin-bottom: 2rem;">
-    <h2 style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); margin-bottom: 0.5rem;">System Core</h2>
-    <h1 style="font-size: 2.25rem; font-weight: 800; letter-spacing: -1px;">HUD Configuration</h1>
+<header class="clean-header" style="margin-bottom: 2.5rem;">
+    <div>
+        <h2>System Core</h2>
+        <h1>HUD Configuration</h1>
+    </div>
 </header>
 
 <div class="bento-grid">
     <div class="bento-card large" style="grid-column: span 12;">
         <div class="settings-form" style="padding: 1rem;">
-            <div class="setting-group" style="margin-bottom: 1.5rem;">
-                <label style="display: block; font-size: 0.8rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 0.5rem;">Admin Notification Target</label>
-                <input type="email" id="receiver-email" placeholder="admin@lab.local" style="width: 100%; background: var(--bg-deep); border: 1px solid var(--border); color: var(--text); padding: 0.75rem; border-radius: 8px;">
-            </div>
-            <div class="setting-group" style="margin-bottom: 1.5rem;">
-                <label style="display: block; font-size: 0.8rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 0.5rem;">Sector Designation</label>
-                <input type="text" id="room-name" placeholder="Sector 7G" style="width: 100%; background: var(--bg-deep); border: 1px solid var(--border); color: var(--text); padding: 0.75rem; border-radius: 8px;">
+            <div class="setting-group" style="margin-bottom: 2rem;">
+                <label>Admin Notification Target</label>
+                <input type="email" id="receiver-email" placeholder="admin@lab.local">
             </div>
             <div class="setting-group" style="margin-bottom: 2rem;">
-                <label style="display: block; font-size: 0.8rem; text-transform: uppercase; color: var(--text-dim); margin-bottom: 0.5rem;">Alarm Latency (Threshold Seconds)</label>
-                <input type="number" id="alert-delay" placeholder="30" style="width: 100%; background: var(--bg-deep); border: 1px solid var(--border); color: var(--text); padding: 0.75rem; border-radius: 8px;">
+                <label>Sector Designation</label>
+                <input type="text" id="room-name" placeholder="Sector 7G">
+            </div>
+            <div class="setting-group" style="margin-bottom: 2.5rem;">
+                <label>Alarm Latency (Threshold Seconds)</label>
+                <input type="number" id="alert-delay" placeholder="30">
+            </div>
+            <div class="setting-group" style="margin-bottom: 2.5rem;">
+                <label>Camera Source (index or URL)</label>
+                <input type="text" id="camera-source" placeholder="0 or rtsp://...">
             </div>
             <div style="display: flex; gap: 1rem;">
-                <button class="btn-cta" id="save-settings" style="flex: 2;">Commit Changes</button>
-                <button class="btn-cta" id="test-email-btn" style="flex: 1; background: var(--accent);">Test Channel</button>
+                <button class="btn-save" id="save-settings" style="flex: 2; padding: 1.25rem;">Commit Changes</button>
+                <button class="btn-save btn-secondary" id="test-email-btn" style="flex: 1;">Test Channel</button>
             </div>
             <div id="settings-msg" style="margin-top: 1.5rem; font-size: 0.9rem; font-weight: 600;"></div>
         </div>

@@ -1,5 +1,6 @@
 {
-  "receiver_email": "vmaingade21@gmail.com",
+  "receiver_email": "shubhangishetty2105@gmail.com",
   "room_name": "Computer Lab",
-  "alert_delay": 30
+  "alert_delay": 30,
+  "camera_source": ""
 }

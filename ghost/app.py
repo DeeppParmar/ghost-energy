@@ -32,6 +32,8 @@ _total_detections = 0
 _camera_lock = threading.Lock()
 _latest_frame = None
 _camera_running = False
+_camera_stop_event = threading.Event()
+_active_camera_source = None
 _TARGET_FPS = 30
 _FRAME_INTERVAL = 1.0 / _TARGET_FPS
 
@@ -105,43 +107,80 @@ def migrate_csv_schema():
 # Migrate CSV schema before any threads start (so UI & exports are consistent).
 migrate_csv_schema()
 
+def _looks_like_valid_camera_frame(frame):
+    """Reject clearly broken/corrupt frames (e.g. flat orange virtual-camera feed)."""
+    if frame is None or frame.size == 0:
+        return False
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # Near-flat image usually indicates a broken source frame.
+    if float(np.std(gray)) < 6.0:
+        return False
+    b_mean = float(np.mean(frame[:, :, 0]))
+    g_mean = float(np.mean(frame[:, :, 1]))
+    r_mean = float(np.mean(frame[:, :, 2]))
+    channel_spread = max(b_mean, g_mean, r_mean) - min(b_mean, g_mean, r_mean)
+    # Very strong single-channel cast + very low texture = likely invalid feed.
+    if channel_spread > 85.0 and float(np.std(gray)) < 12.0:
+        return False
+    return True
+
+
+def _probe_camera_source(src):
+    """Open camera source and validate it with a few sample frames."""
+    cam = _try_open_camera(src)
+    if not cam.isOpened():
+        return None
+    cam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    cam.set(cv2.CAP_PROP_FPS, 30)
+
+    valid_frames = 0
+    for _ in range(20):
+        ok, frame = cam.read()
+        if ok and _looks_like_valid_camera_frame(frame):
+            valid_frames += 1
+        time.sleep(0.01)
+        if valid_frames >= 3:
+            return cam
+    cam.release()
+    return None
+
+
+def _try_open_camera(src):
+    # Windows: try multiple backends because different systems enumerate cameras differently.
+    if os.name != "nt":
+        return cv2.VideoCapture(src)
+
+    backend_candidates = [None]
+    if hasattr(cv2, "CAP_DSHOW"):
+        backend_candidates.append(cv2.CAP_DSHOW)
+    if hasattr(cv2, "CAP_MSMF"):
+        backend_candidates.append(cv2.CAP_MSMF)
+    if hasattr(cv2, "CAP_ANY"):
+        backend_candidates.append(cv2.CAP_ANY)
+
+    last_cam = None
+    for backend in backend_candidates:
+        cam = cv2.VideoCapture(src) if backend is None else cv2.VideoCapture(src, backend)
+        last_cam = cam
+        if cam.isOpened():
+            return cam
+        try:
+            cam.release()
+        except Exception:
+            pass
+    return last_cam
+
+
 def _camera_thread():
     """Capture frames in background — never blocks anything."""
-    global _latest_frame, _camera_running
+    global _latest_frame, _camera_running, _active_camera_source
 
     # Try primary configured source first; if it fails, auto-scan a few common webcam indexes.
     # This prevents the UI MJPEG stream from staying black when CAM index is wrong.
     source = getattr(config, "CAMERA_SOURCE", 0)
 
-    def _try_open(src):
-        # Windows: try multiple backends because different systems enumerate cameras differently.
-        if os.name != "nt":
-            return cv2.VideoCapture(src)
-
-        # Keep scan small to avoid long startup + log spam.
-        backend_candidates = [None]
-        if hasattr(cv2, "CAP_DSHOW"):
-            backend_candidates.append(cv2.CAP_DSHOW)
-        if hasattr(cv2, "CAP_MSMF"):
-            backend_candidates.append(cv2.CAP_MSMF)
-        if hasattr(cv2, "CAP_ANY"):
-            backend_candidates.append(cv2.CAP_ANY)
-
-        last_cam = None
-        for backend in backend_candidates:
-            cam = cv2.VideoCapture(src) if backend is None else cv2.VideoCapture(src, backend)
-            last_cam = cam
-            if cam.isOpened():
-                return cam
-            try:
-                cam.release()
-            except Exception:
-                pass
-
-        return last_cam
-
-    camera = _try_open(source)
-    if not camera.isOpened():
+    camera = _probe_camera_source(source)
+    if camera is None:
         # If `CAMERA_SOURCE` is an index, scan nearby indexes for a working webcam.
         candidates = None
         if isinstance(source, int):
@@ -151,23 +190,23 @@ def _camera_thread():
 
         if candidates:
             for idx in candidates:
-                test_cam = _try_open(idx)
-                if test_cam.isOpened():
+                test_cam = _probe_camera_source(idx)
+                if test_cam is not None:
                     camera = test_cam
                     source = idx
                     break
 
-    if not camera.isOpened():
+    if camera is None:
         _camera_running = False
         print(f"[CAMERA] Opened: False. No usable camera source found (source={getattr(config, 'CAMERA_SOURCE', None)}).")
         return
 
-    camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    camera.set(cv2.CAP_PROP_FPS, 30)
     _camera_running = True
+    _active_camera_source = source
+    _camera_stop_event.clear()
     print(f"[CAMERA] Opened: True (source={source}), Target: 30fps")
 
-    while _camera_running:
+    while _camera_running and not _camera_stop_event.is_set():
         success, frame = camera.read()
         if success:
             with _camera_lock:
@@ -176,6 +215,21 @@ def _camera_thread():
             time.sleep(0.005)
 
     camera.release()
+    _camera_running = False
+
+
+def _restart_camera_thread():
+    """Safely restart camera thread when camera source changes."""
+    global _cam_thread, _latest_frame
+    _camera_stop_event.set()
+    if '_cam_thread' in globals() and _cam_thread.is_alive():
+        _cam_thread.join(timeout=1.5)
+
+    with _camera_lock:
+        _latest_frame = None
+
+    _cam_thread = threading.Thread(target=_camera_thread, daemon=True)
+    _cam_thread.start()
 
 
 def _ai_thread():
@@ -271,10 +325,16 @@ def load_settings():
                 config.ROOM_NAME = saved['room_name']
             if 'alert_delay' in saved:
                 config.ALERT_DELAY_SECONDS = int(saved['alert_delay'])
+            if 'camera_source' in saved:
+                raw_source = saved['camera_source']
+                if isinstance(raw_source, str) and raw_source.isdigit():
+                    raw_source = int(raw_source)
+                config.CAMERA_SOURCE = raw_source
             print(f"[SETTINGS] Loaded from {SETTINGS_FILE}")
             print(f"  → Receiver: {config.RECEIVER_EMAIL}")
             print(f"  → Room: {config.ROOM_NAME}")
             print(f"  → Alert Delay: {config.ALERT_DELAY_SECONDS}s")
+            print(f"  → Camera Source: {getattr(config, 'CAMERA_SOURCE', 0)}")
         except Exception as e:
             print(f"[SETTINGS] Failed to load: {e}")
 
@@ -284,7 +344,8 @@ def save_settings():
     data = {
         'receiver_email': config.RECEIVER_EMAIL,
         'room_name': config.ROOM_NAME,
-        'alert_delay': config.ALERT_DELAY_SECONDS
+        'alert_delay': config.ALERT_DELAY_SECONDS,
+        'camera_source': getattr(config, 'CAMERA_SOURCE', 0)
     }
     try:
         with open(SETTINGS_FILE, 'w') as f:
@@ -297,6 +358,8 @@ def save_settings():
 
 # Load saved settings on startup
 load_settings()
+# Apply saved camera source immediately after loading settings.
+_restart_camera_thread()
 
 
 def generate_frames():
@@ -381,7 +444,10 @@ def status():
     return jsonify({
         "person_count": monitor.person_count,
         "light_status": monitor.light_status,
+        # For now light_type mirrors light_status but is kept for backward compatibility.
         "light_type": monitor.light_status,
+        "luminance": getattr(monitor, "luminance", None),
+        "light_debug": getattr(monitor, "light_debug", {}),
         "is_energy_wasted": monitor.is_energy_wasted,
         "time_since_presence": int(time.time() - monitor.last_seen_time),
         "ai_fps": monitor._ai_fps,
@@ -438,7 +504,8 @@ def get_settings():
     return jsonify({
         "receiver_email": config.RECEIVER_EMAIL,
         "room_name": config.ROOM_NAME,
-        "alert_delay": config.ALERT_DELAY_SECONDS
+        "alert_delay": config.ALERT_DELAY_SECONDS,
+        "camera_source": getattr(config, "CAMERA_SOURCE", 0)
     })
 
 @app.route('/api/settings', methods=['POST'])
@@ -463,8 +530,25 @@ def update_settings():
         except ValueError:
             pass
 
+    camera_restarted = False
+    if 'camera_source' in data:
+        raw_source = data['camera_source']
+        if isinstance(raw_source, str):
+            raw_source = raw_source.strip()
+            new_source = int(raw_source) if raw_source.isdigit() else raw_source
+        else:
+            new_source = raw_source
+
+        if new_source != getattr(config, "CAMERA_SOURCE", 0):
+            config.CAMERA_SOURCE = new_source
+            _restart_camera_thread()
+            camera_restarted = True
+
     monitor.alert_sent = False
-    print(f"[SETTINGS] Updated → Email: {config.RECEIVER_EMAIL}, Room: {config.ROOM_NAME}, Delay: {config.ALERT_DELAY_SECONDS}s")
+    print(
+        f"[SETTINGS] Updated → Email: {config.RECEIVER_EMAIL}, Room: {config.ROOM_NAME}, "
+        f"Delay: {config.ALERT_DELAY_SECONDS}s, Camera: {getattr(config, 'CAMERA_SOURCE', 0)}"
+    )
 
     saved = save_settings()
 
@@ -473,7 +557,9 @@ def update_settings():
         "saved_to_disk": saved,
         "receiver_email": config.RECEIVER_EMAIL,
         "room_name": config.ROOM_NAME,
-        "alert_delay": config.ALERT_DELAY_SECONDS
+        "alert_delay": config.ALERT_DELAY_SECONDS,
+        "camera_source": getattr(config, "CAMERA_SOURCE", 0),
+        "camera_restarted": camera_restarted
     })
 
 
@@ -583,7 +669,11 @@ def export_csv():
 
 @app.route('/api/heatmap_data')
 def heatmap_data():
-    """Return hour×weekday waste totals from the audit CSV."""
+    """Return hour×weekday waste totals from the audit CSV.
+
+    Optional query:
+        ?date=YYYY-MM-DD  -> restrict aggregation to a single calendar date.
+    """
     import csv
     from collections import defaultdict
 
@@ -591,6 +681,14 @@ def heatmap_data():
 
     cell_totals = defaultdict(float)  # (weekday, hour) -> seconds
     max_seconds = 0.0
+
+    target_date_str = request.args.get('date', '').strip()
+    target_date = None
+    if target_date_str:
+        try:
+            target_date = datetime.strptime(target_date_str, '%Y-%m-%d').date()
+        except Exception:
+            target_date = None
 
     if os.path.exists(log_file):
         try:
@@ -604,6 +702,9 @@ def heatmap_data():
                     try:
                         dt = datetime.strptime(ts, '%Y-%m-%d %H:%M:%S')
                     except Exception:
+                        continue
+
+                    if target_date is not None and dt.date() != target_date:
                         continue
 
                     dur = float(row.get('Duration_Seconds', 0) or 0)
@@ -739,13 +840,16 @@ def energy_savings():
     # Last 7 days
     labels = []
     data = []
+    date_keys = []
     for i in range(6, -1, -1):
-        d = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
-        labels.append((datetime.now() - timedelta(days=i)).strftime('%a'))
+        dt = datetime.now() - timedelta(days=i)
+        d = dt.strftime('%Y-%m-%d')
+        labels.append(dt.strftime('%a'))
+        date_keys.append(d)
         waste_hrs = round(daily_waste.get(d, 0) / 3600, 2)
         data.append(waste_hrs)
 
-    return jsonify({"labels": labels, "data": data})
+    return jsonify({"labels": labels, "data": data, "dates": date_keys})
 
 
 @app.route('/api/history_stats')

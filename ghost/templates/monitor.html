@@ -3,16 +3,16 @@
 {% block title %}Command Center | VisionCore{% endblock %}
 
 {% block content %}
-<header style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 2rem;">
+<header class="clean-header" style="margin-bottom: 2rem;">
     <div>
-        <h2 style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); margin-bottom: 0.5rem;">Environment HUD</h2>
-        <h1 style="font-size: 2.25rem; font-weight: 800; letter-spacing: -1px;">Command Center</h1>
+        <h2>Environment HUD</h2>
+        <h1>Command Center</h1>
     </div>
-    <div style="display:flex; align-items:center; gap:10px;">
-        <div id="live-indicator" style="background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success); color: var(--success); padding: 4px 12px; border-radius: 100px; font-size: 0.75rem; font-weight: 800; letter-spacing: 1px;">
-            ● LIVE ENCODER
+    <div style="display:flex; align-items:center; gap:12px;">
+        <div id="live-indicator" style="background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success); color: var(--success); padding: 6px 16px; border-radius: 999px; font-size: 0.75rem; font-weight: 800; letter-spacing: 1px; box-shadow: 0 0 10px rgba(16,185,129,0.2);">
+            <span class="status-dot-active" style="display:inline-block; margin-right:6px;"></span> LIVE ENCODER
         </div>
-        <a href="/settings" style="background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text); width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; text-decoration: none; font-size: 1.2rem;">⚙</a>
+        <a href="/settings" style="background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text); width: 40px; height: 40px; border-radius: 12px; display: flex; align-items: center; justify-content: center; text-decoration: none; font-size: 1.2rem; transition: 0.3s;" onmouseover="this.style.transform='rotate(45deg)'" onmouseout="this.style.transform='rotate(0deg)'">⚙</a>
     </div>
 </header>
 
@@ -28,6 +28,15 @@
                 <div class="hud-bracket bottom-right"></div>
                 <div class="hud-scanline"></div>
 
+                <!-- Luminance badge so you can see exactly what the AI detects -->
+                <div class="hud-luminance-pill">
+                    <div class="hud-luminance-label">LUMINANCE</div>
+                    <div class="hud-luminance-value">
+                        <span id="luminance-value">--</span>
+                        <span class="hud-luminance-unit">/ 255</span>
+                    </div>
+                    <div class="hud-luminance-mode" id="luminance-mode">Analyzing…</div>
+                </div>
             </div>
             <div id="energy-alert" class="waste-alert" style="position: absolute; bottom: 20px; left: 20px; right: 20px; z-index: 20; display: none;">
                 ⚠️ CRITICAL: ENERGY WASTE DETECTED IN VACANT SECTOR
@@ -77,25 +86,21 @@
     <!-- AI Confidence + Verifier Badges -->
     <div class="bento-card wide">
         <div class="stat-heading" style="margin-bottom: 0.75rem;">AI Status</div>
-        <div style="display:flex; gap: 1.25rem; flex-wrap: wrap;">
-            <div style="min-width: 220px; flex: 1;">
-                <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); font-weight: 800; margin-bottom: 0.5rem;">Confidence</div>
-                <div style="margin-top: 0.5rem;">
-                    <span id="confidence-pill"
-                          class="confidence-pill"
-                          style="display:inline-flex; align-items:center; justify-content:center; padding: 0.45rem 0.95rem; border-radius: 999px; border:1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--text-dim); font-weight: 900; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; transition: background-color 0.4s ease; min-width: 160px;">--</span>
+        <div style="display:flex; gap: 2rem; flex-wrap: wrap;">
+            <div style="flex: 1;">
+                <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); font-weight: 800; margin-bottom: 0.75rem;">Confidence Score</div>
+                <div>
+                    <span id="confidence-pill" class="confidence-pill" style="display:inline-flex; align-items:center; justify-content:center; padding: 0.65rem 1.25rem; border-radius: 999px; border:1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--text-dim); font-weight: 900; font-size: 0.85rem; letter-spacing: 1px; text-transform: uppercase; transition: all 0.4s ease; min-width: 140px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);">--</span>
                 </div>
                 <div class="stat-desc" style="margin-top: 0.75rem;">Primary tracker confidence</div>
             </div>
 
-            <div style="min-width: 220px; flex: 1;">
-                <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); font-weight: 800; margin-bottom: 0.5rem;">Verifier</div>
-                <div style="margin-top: 0.5rem;">
-                    <span id="verifier-pill"
-                          class="verifier-pill"
-                          style="display:inline-flex; align-items:center; justify-content:center; padding: 0.45rem 0.95rem; border-radius: 999px; border:1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--text-dim); font-weight: 900; font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase; transition: background-color 0.4s ease; min-width: 160px;">--</span>
+            <div style="flex: 1;">
+                <div style="font-size: 0.65rem; text-transform: uppercase; letter-spacing: 2px; color: var(--text-dim); font-weight: 800; margin-bottom: 0.75rem;">Secondary Verifier</div>
+                <div>
+                    <span id="verifier-pill" class="verifier-pill" style="display:inline-flex; align-items:center; justify-content:center; padding: 0.65rem 1.25rem; border-radius: 999px; border:1px solid var(--border); background: rgba(255,255,255,0.02); color: var(--text-dim); font-weight: 900; font-size: 0.85rem; letter-spacing: 1px; text-transform: uppercase; transition: all 0.4s ease; min-width: 140px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);">--</span>
                 </div>
-                <div class="stat-desc" style="margin-top: 0.75rem;">Secondary YOLO verification</div>
+                <div class="stat-desc" style="margin-top: 0.75rem;">Deep YOLO verification pass</div>
             </div>
         </div>
     </div>

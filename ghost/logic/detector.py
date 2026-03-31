@@ -72,6 +72,10 @@ class RoomMonitor:
         self.person_count = 0
         self.last_seen_time = time.time()
         self.light_status = "Dark"
+        # Numeric luminance value (0-255 avg grayscale) for UI telemetry.
+        self.luminance = None
+        # Debug telemetry for luminance/light classification.
+        self.light_debug = {}
         self.is_energy_wasted = False
         self.alert_sent = False
         # Average confidence (0.0-1.0) from the primary tracker for current detections.
@@ -93,6 +97,9 @@ class RoomMonitor:
         self._overlay_humans = []       # [(x1,y1,x2,y2,conf,track_id), ...]
         self._overlay_objects = []      # [{'coords':..., 'name':..., 'conf':...}, ...]
         self._overlay_scale = (1.0, 1.0)
+        # Camera HUD telemetry snapshot for overlay drawing.
+        self._overlay_luminance = None  # raw luminance (0-255) from grayscale mean
+        self._overlay_light_status = "Dark"
 
         # ── Async verifier state ──
         self._verifier_lock = threading.Lock()
@@ -158,12 +165,24 @@ class RoomMonitor:
         """Advanced Light Classification: LED vs Sunlight."""
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         brightness = float(np.mean(gray))
+        # Persist raw luminance so the UI can show exactly what the AI "sees".
+        self.luminance = brightness
+        is_night = self._is_night_time()
+        self.light_debug = {
+            "brightness_mean": brightness,
+            "brightness_threshold": float(config.BRIGHTNESS_THRESHOLD),
+            "is_night_time": is_night,
+            "window_brightness": None,
+            "blue_red_ratio": None,
+        }
         if brightness < config.BRIGHTNESS_THRESHOLD:
             self.light_status = "Dark"
+            self.light_debug["decision"] = "Dark (below threshold)"
             return self.light_status
 
-        if self._is_night_time():
+        if is_night:
             self.light_status = "Artificial Light"
+            self.light_debug["decision"] = "Artificial (night-time)"
             return self.light_status
 
         h, w = frame.shape[:2]
@@ -176,13 +195,18 @@ class RoomMonitor:
             r_mean = float(np.mean(window_region[:, :, 2]))
             ratio = b_mean / (r_mean + 1e-6)
             window_brightness = float(np.mean(cv2.cvtColor(window_region, cv2.COLOR_BGR2GRAY)))
+            self.light_debug["window_brightness"] = window_brightness
+            self.light_debug["blue_red_ratio"] = ratio
 
             if window_brightness > brightness * 1.3 and ratio > 1.02:
                 self.light_status = "Natural Sunlight"
+                self.light_debug["decision"] = "Natural Sunlight (window bright + ratio)"
             else:
                 self.light_status = "Artificial Light"
+                self.light_debug["decision"] = "Artificial (window/ratio gate)"
         else:
             self.light_status = "Artificial Light"
+            self.light_debug["decision"] = "Artificial (no window region)"
 
         return self.light_status
 
@@ -310,13 +334,13 @@ class RoomMonitor:
             tid = th[5]
 
             # High confidence from tracker alone = accept
-            if conf_t >= 0.50:
+            if conf_t >= config.PERSON_ACCEPT_CONF_MIN:
                 confirmed.append(th)
                 continue
 
             # Otherwise require verifier agreement
             for vh in verified:
-                if _compute_iou(box_t, vh[:4]) >= 0.3:
+                if _compute_iou(box_t, vh[:4]) >= config.VERIFIER_IOU_MIN:
                     avg_conf = (conf_t + vh[4]) / 2.0
                     confirmed.append(box_t + [avg_conf, tid])
                     break
@@ -328,7 +352,12 @@ class RoomMonitor:
             box_w = (bx2 - bx1) * scale_x
             box_h = (by2 - by1) * scale_y
             aspect = box_h / (box_w + 1e-6)
-            if aspect >= 0.7:
+            box_area = box_w * box_h
+            frame_area = float(h * w)
+            if (
+                aspect >= config.PERSON_ASPECT_MIN
+                and box_area >= frame_area * config.PERSON_MIN_BOX_AREA_RATIO
+            ):
                 valid_humans.append(human)
 
         # Confidence badge uses the currently accepted persons (after filtering).
@@ -403,6 +432,11 @@ class RoomMonitor:
         self._fps_ring.append(1.0 / max(t_elapsed, 1e-6))
         self._ai_fps = round(sum(self._fps_ring) / len(self._fps_ring), 1)
 
+        # Snapshot light telemetry for the video overlay thread.
+        with self._overlay_lock:
+            self._overlay_luminance = self.luminance
+            self._overlay_light_status = self.light_status
+
         return frame
 
     # ── Draw Overlay (called by stream thread — never blocks AI) ─────
@@ -413,6 +447,8 @@ class RoomMonitor:
             humans = list(self._overlay_humans)
             objects = list(self._overlay_objects)
             scale_x, scale_y = self._overlay_scale
+            lum = self._overlay_luminance
+            light_status = self._overlay_light_status
 
         # ── Draw non-human objects ──
         for obj in objects:
@@ -446,5 +482,33 @@ class RoomMonitor:
             cv2.rectangle(frame, (x1h, y1h - lh_t - 10), (x1h + lw, y1h), (0, 255, 0), -1)
             cv2.putText(frame, label, (x1h, y1h - 5),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
+
+        # ── Draw luminance + light classification on the frame ──
+        # This makes it obvious (even without JS) that the AI is actively computing luminance.
+        try:
+            if lum is None:
+                lum_int = None
+            else:
+                lum_int = int(max(0, min(255, round(float(lum)))))
+
+            x = 14
+            y = 28
+            panel_w = 260
+            panel_h = 56
+            cv2.rectangle(frame, (x - 6, y - 22), (x - 6 + panel_w, y - 22 + panel_h), (0, 0, 0), -1)
+            cv2.rectangle(frame, (x - 6, y - 22), (x - 6 + panel_w, y - 22 + panel_h), (148, 163, 184), 1)
+
+            top = "LUMINANCE"
+            if lum_int is None:
+                lum_str = "--"
+            else:
+                lum_str = str(lum_int)
+            cv2.putText(frame, f"{top}: {lum_str}/255", (x, y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA)
+            cv2.putText(frame, str(light_status), (x, y + 22),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2, cv2.LINE_AA)
+        except Exception:
+            # Never fail overlay drawing.
+            pass
 
         return frame

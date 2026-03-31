@@ -1,0 +1,35 @@
+VisionCore polishing summary
+----------------------------
+
+- Frontend HUD refinements and UX
+  - Added an in-frame luminance pill overlay on the monitor view so you can see the exact luminance value (/255) and current light classification that the AI model is using.
+  - Introduced a global premium-style toast system, wired to show a non-intrusive “no human in frame” warning when luminance indicates lights are on but no presence is detected.
+  - Kept your existing bento layout, typography, and chart structure intact while making the camera HUD feel more informative and minimal rather than adding heavy chrome.
+
+- Camera, luminance wiring, and stability
+  - Propagated the raw luminance value from the detector into the Flask `/status` API, so the frontend can reflect the AI’s actual brightness reading in real time.
+  - Ensured luminance and light status are updated every status poll without touching the underlying YOLO tracking or alert logic, maintaining the current energy-waste pipeline.
+
+- Pipeline and integration checks
+  - Verified status/health/energy API endpoints still align with the existing frontend calls and that detection confidence and verifier state remain backward compatible.
+  - Confirmed existing analytics (history, reports, heatmap, monthly summary) continue to function with the updated status payload.
+
+- Cleanup and final pass
+  - Avoided disruptive changes to core detection logic and configurations to preserve stability.
+  - Ran lint checks on the `ghost` package to ensure there are no new static-analysis errors introduced by the UI and API updates.
+
+- Fix for “stuck EMPTY”
+  - Tuned human acceptance gates in the detector (confidence threshold, verifier IoU merge, aspect-ratio + minimum box-area filters) so `person_count` updates properly and `last_seen_time` doesn’t stay stale.
+  - Re-ran lints and `py_compile` to ensure no syntax/runtime-breaking changes were introduced.
+
+- Camera source corruption fix (Iriun / virtual cam)
+  - Added camera-source quality probing that rejects clearly broken/flat feeds (including monochrome/orange corrupted frames) before selecting a source.
+  - Added configurable `camera_source` in Settings UI + API with safe live camera-thread restart when source changes.
+  - Startup now reapplies saved camera source and restarts capture so the configured source is truly active.
+
+- Fix: frame-level luminance visualization
+  - Added a snapshot of luminance + light classification from the detector into the overlay thread.
+  - Drew `LUMINANCE: <value>/255` and the light label directly onto the streamed video frame via OpenCV.
+  - This guarantees you can confirm the AI is computing luminance even if the frontend HUD fails to update.
+  - Added `/status` debug telemetry (`light_debug`) so you can verify the exact brightness value, threshold, and window-based decision inputs without guessing.
+
