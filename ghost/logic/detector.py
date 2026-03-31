@@ -611,8 +611,6 @@ class RoomMonitor:
         light = self.analyze_light(frame)
         current_time = time.time()
 
-        self.person_count = len(valid_humans)
-
         # ── Edge-Triggered Activity Notifications ──
         if self._previous_person_count == 0 and self.person_count > 0:
             print(f"[EDGE] Activity Detected: 0 -> {self.person_count}")
