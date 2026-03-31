@@ -743,12 +743,33 @@ def test_email():
 
 @app.route('/api/test_telegram', methods=['POST'])
 def test_telegram():
-    """Send a test Telegram message to verify the bot token and chat ID."""
-    try:
-        from logic.telegram_notifier import send_test_message
-        success, message = send_test_message()
-    except ImportError:
-        success, message = False, "Telegram notifier module not found."
+    """Send a test Telegram message to verify the bot token and chat ID.
+    Accepts optional token/chat_id in request body so users can test before saving."""
+    data = request.get_json() or {}
+    # If token/chat_id sent in body, use those directly (allows testing before save)
+    token = (data.get('telegram_bot_token') or '').strip()
+    chat_id = (data.get('telegram_chat_id') or '').strip()
+    if token and chat_id:
+        # Temporarily apply to config so the notifier picks them up
+        old_token = getattr(config, 'TELEGRAM_BOT_TOKEN', '')
+        old_chat = getattr(config, 'TELEGRAM_CHAT_ID', '')
+        config.TELEGRAM_BOT_TOKEN = token
+        config.TELEGRAM_CHAT_ID = chat_id
+        try:
+            from logic.telegram_notifier import send_test_message
+            success, message = send_test_message()
+        except ImportError:
+            success, message = False, "Telegram notifier module not found."
+        finally:
+            # Restore originals (user hasn't committed yet)
+            config.TELEGRAM_BOT_TOKEN = old_token
+            config.TELEGRAM_CHAT_ID = old_chat
+    else:
+        try:
+            from logic.telegram_notifier import send_test_message
+            success, message = send_test_message()
+        except ImportError:
+            success, message = False, "Telegram notifier module not found."
     return jsonify({"success": success, "message": message})
 
 

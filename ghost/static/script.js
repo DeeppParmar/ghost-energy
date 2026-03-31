@@ -291,7 +291,9 @@ class VisionHUD {
             // Energy Alert Banner
             const alertBanner = document.getElementById('energy-alert');
             if (alertBanner) {
-                alertBanner.style.display = data.is_energy_wasted ? 'block' : 'none';
+                // Only show the global waste banner when nobody is in frame at all.
+                // Prevents false alarms when person is in one zone but another zone is empty.
+                alertBanner.style.display = (data.is_energy_wasted && data.person_count === 0) ? 'block' : 'none';
             }
 
             // Toast: Only when we enter a waste state (not on every idle poll).
@@ -798,7 +800,18 @@ class VisionHUD {
             msgEl.textContent = '📲 Sending test message...';
         }
         try {
-            const res = await fetch('/api/test_telegram', { method: 'POST' });
+            // Send current form values so backend can test without requiring a save first
+            const tokenEl = document.getElementById('telegram-bot-token');
+            const chatEl = document.getElementById('telegram-chat-id');
+            const body = {};
+            if (tokenEl) body.telegram_bot_token = tokenEl.value;
+            if (chatEl) body.telegram_chat_id = chatEl.value;
+
+            const res = await fetch('/api/test_telegram', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
             const d = await res.json();
             if (msgEl) {
                 msgEl.style.color = d.success ? 'var(--success)' : 'var(--danger)';
